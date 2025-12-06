@@ -1,0 +1,138 @@
+/**
+ * Apex - Unified Markdown Processor
+ *
+ * A comprehensive Markdown processor with support for CommonMark, GFM,
+ * MultiMarkdown, Kramdown, and Marked's special syntax extensions.
+ */
+
+#ifndef APEX_H
+#define APEX_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stddef.h>
+#include <stdbool.h>
+
+#define APEX_VERSION_MAJOR 0
+#define APEX_VERSION_MINOR 1
+#define APEX_VERSION_PATCH 6
+#define APEX_VERSION_STRING "0.1.6"
+
+/**
+ * Processor compatibility modes
+ */
+typedef enum {
+    APEX_MODE_COMMONMARK = 0,      /* Pure CommonMark spec */
+    APEX_MODE_GFM = 1,              /* GitHub Flavored Markdown */
+    APEX_MODE_MULTIMARKDOWN = 2,    /* MultiMarkdown compatibility */
+    APEX_MODE_KRAMDOWN = 3,         /* Kramdown compatibility */
+    APEX_MODE_UNIFIED = 4           /* All features enabled */
+} apex_mode_t;
+
+/**
+ * Configuration options for the parser and renderer
+ */
+typedef struct {
+    apex_mode_t mode;
+
+    /* Feature flags */
+    bool enable_tables;
+    bool enable_footnotes;
+    bool enable_definition_lists;
+    bool enable_smart_typography;
+    bool enable_math;
+    bool enable_critic_markup;
+    bool enable_wiki_links;
+    bool enable_task_lists;
+    bool enable_attributes;
+    bool enable_callouts;
+    bool enable_marked_extensions;
+
+    /* Critic markup mode */
+    int critic_mode;  /* 0=markup (default), 1=accept, 2=reject */
+
+    /* Metadata handling */
+    bool strip_metadata;
+    bool enable_metadata_variables;  /* [%key] replacement */
+
+    /* File inclusion */
+    bool enable_file_includes;
+    int max_include_depth;
+    const char *base_directory;
+
+    /* Output options */
+    bool unsafe;  /* Allow raw HTML */
+    bool validate_utf8;
+    bool github_pre_lang;  /* Use GitHub code block language format */
+    bool standalone;  /* Generate complete HTML document */
+    bool pretty;      /* Pretty-print HTML with indentation */
+    const char *stylesheet_path;  /* Path to CSS file to link in head */
+    const char *document_title;   /* Title for HTML document */
+
+    /* Line break handling */
+    bool hardbreaks;  /* Treat newlines as hard breaks (GFM style) */
+    bool nobreaks;    /* Render soft breaks as spaces */
+
+    /* Header ID generation */
+    bool generate_header_ids;  /* Generate IDs for headers */
+    bool header_anchors;  /* Generate <a> anchor tags instead of header IDs */
+    int id_format;  /* 0=GFM (with dashes), 1=MMD (no dashes) */
+
+    /* Table options */
+    bool relaxed_tables;  /* Support tables without separator rows (kramdown/unified only) */
+} apex_options;
+
+/**
+ * Get default options for a specific mode
+ */
+apex_options apex_options_default(void);
+apex_options apex_options_for_mode(apex_mode_t mode);
+
+/**
+ * Main conversion function: Markdown to HTML
+ *
+ * @param markdown Input markdown text
+ * @param len Length of input text
+ * @param options Processing options (NULL for defaults)
+ * @return Newly allocated HTML string (must be freed with apex_free_string)
+ */
+char *apex_markdown_to_html(const char *markdown, size_t len, const apex_options *options);
+
+/**
+ * Wrap HTML content in complete HTML5 document structure
+ *
+ * @param content HTML content to wrap
+ * @param title Document title (NULL for default)
+ * @param stylesheet_path Path to CSS file to link (NULL for none)
+ * @return Newly allocated HTML document string (must be freed with apex_free_string)
+ */
+char *apex_wrap_html_document(const char *content, const char *title, const char *stylesheet_path);
+
+/**
+ * Pretty-print HTML with proper indentation
+ *
+ * @param html HTML to format
+ * @return Newly allocated formatted HTML string (must be freed with apex_free_string)
+ */
+char *apex_pretty_print_html(const char *html);
+
+/**
+ * Free a string allocated by Apex
+ */
+void apex_free_string(char *str);
+
+/**
+ * Get version information
+ */
+const char *apex_version_string(void);
+int apex_version_major(void);
+int apex_version_minor(void);
+int apex_version_patch(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* APEX_H */
