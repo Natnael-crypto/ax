@@ -166,6 +166,20 @@ char *apex_process_sup_sub(const char *text) {
         /* Check for subscript: ~word (only first word, stops at space, ~, or end) */
         /* First, check for critic markup patterns that use ~ */
         if (*read == '~') {
+            /* If this ~ is part of a double-tilde sequence (~~), leave it alone
+             * so the strikethrough extension can handle it.
+             * Also skip if the previous character was ~ (already part of ~~).
+             */
+            if ((read > text && read[-1] == '~') || read[1] == '~') {
+                if (remaining > 0) {
+                    *write++ = *read++;
+                    remaining--;
+                } else {
+                    read++;
+                }
+                continue;
+            }
+
             /* Check for {~~ (opening critic substitution) - previous char is { and next is ~ */
             if (read > text && read[-1] == '{' && read[1] == '~') {
                 /* Copy both ~ characters and continue */
@@ -202,48 +216,110 @@ char *apex_process_sup_sub(const char *text) {
             }
         }
 
-        /* Check for subscript: ~word (only first word, stops at space, ~, or end) */
+        /* Check for tilde-based syntax: ~text~ (underline), ~word (subscript), or ~~text~~ (strikethrough, already skipped) */
         if (*read == '~' && read[1] != '\0' && read[1] != ' ' && read[1] != '\t' && read[1] != '\n' && read[1] != '~') {
             const char *content_start = read + 1;
             const char *content_end = content_start;
+            const char *closing_tilde = NULL;
+            bool is_underline = false;
 
-            /* Find end of word (first space, ~, newline, or end of string) */
-            while (*content_end && *content_end != ' ' && *content_end != '\t' && *content_end != '\n' && *content_end != '~') {
-                content_end++;
+            /* First, check if the next character is a sentence terminator - if so, it's definitely subscript */
+            bool is_likely_subscript = false;
+            const char *check = content_start;
+            while (*check && *check != ' ' && *check != '\t' && *check != '\n' && *check != '~') {
+                if (*check == '.' || *check == ',' || *check == ';' || *check == ':' || *check == '!' || *check == '?') {
+                    is_likely_subscript = true;
+                    break;
+                }
+                check++;
+            }
+
+            if (!is_likely_subscript) {
+                /* No sentence terminator found, check for underline pattern: scan forward to find a closing ~ */
+                /* Underline can span multiple words, but we need to find a closing ~ with no space before it */
+                const char *scan = content_start;
+                while (*scan && *scan != '\n') {
+                    if (*scan == '~') {
+                        /* Found a potential closing ~ */
+                        /* First check: if this is part of a double-tilde (~~), skip it - strikethrough handles this */
+                        if (scan[1] == '~') {
+                            /* This is part of ~~, skip both tildes and continue looking */
+                            scan += 2;
+                            continue;
+                        }
+                        /* Check if there's a space before it - if so, it's not a closing ~ for underline */
+                        if (scan > content_start) {
+                            unsigned char prev_char = (unsigned char)scan[-1];
+                            if (isspace(prev_char)) {
+                                /* Space before ~, so this is not a closing ~ for underline - continue looking */
+                                scan++;
+                                continue;
+                            }
+                        }
+                        /* No space before ~ and not part of ~~, so this is a closing ~ for underline */
+                        closing_tilde = scan;
+                        is_underline = true;
+                        break;
+                    }
+                    scan++;
+                }
+            }
+
+            if (is_underline && closing_tilde) {
+                /* Underline: content is between start and closing ~ */
+                content_end = closing_tilde;
+            } else {
+                /* Subscript: find end of word (stops at space, punctuation, newline, or ~) */
+                /* Don't include sentence terminators in the subscript */
+                while (*content_end && *content_end != ' ' && *content_end != '\t' && *content_end != '\n' && *content_end != '~') {
+                    /* Stop at sentence terminators: . , ; : ! ? */
+                    if (*content_end == '.' || *content_end == ',' || *content_end == ';' ||
+                        *content_end == ':' || *content_end == '!' || *content_end == '?') {
+                        break;
+                    }
+                    content_end++;
+                }
             }
 
             size_t content_len = content_end - content_start;
 
             /* Only process if we have content */
             if (content_len > 0) {
-                const char *open_tag = "<sub>";
-                const char *close_tag = "</sub>";
+
+                const char *open_tag = is_underline ? "<u>" : "<sub>";
+                const char *close_tag = is_underline ? "</u>" : "</sub>";
                 size_t open_tag_len = strlen(open_tag);
                 size_t close_tag_len = strlen(close_tag);
                 size_t total_needed = open_tag_len + content_len + close_tag_len;
 
                 /* Only write if we have enough space for all parts */
                 if (remaining >= total_needed) {
-                    /* Write <sub> */
+                    /* Write opening tag */
                     memcpy(write, open_tag, open_tag_len);
                     write += open_tag_len;
                     remaining -= open_tag_len;
 
-                    /* Copy subscript content */
+                    /* Copy content */
                     memcpy(write, content_start, content_len);
                     write += content_len;
                     remaining -= content_len;
 
-                    /* Write </sub> - we know we have space because we checked total_needed */
+                    /* Write closing tag */
                     memcpy(write, close_tag, close_tag_len);
                     write += close_tag_len;
                     remaining -= close_tag_len;
 
-                    /* Skip past the content (and the marker if we stopped at it) */
-                    read = content_end;
-                    /* If we stopped at ^ or ~, skip past it so it's not reprocessed */
-                    if (*read == '^' || *read == '~') {
-                        read++;
+                    /* Skip past the content and closing marker */
+                    if (is_underline && closing_tilde) {
+                        /* For underline, skip past the closing ~ */
+                        read = closing_tilde + 1;
+                    } else {
+                        /* For subscript, skip past the content */
+                        read = content_end;
+                        /* If we stopped at ~, skip past it so it's not reprocessed */
+                        if (*read == '~') {
+                            read++;
+                        }
                     }
                     continue;
                 }

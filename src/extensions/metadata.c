@@ -212,18 +212,6 @@ static apex_metadata_item *parse_mmd_metadata(const char *text, size_t *consumed
             continue;
         }
 
-        /* Skip lines containing < (HTML tags, autolinks, etc.) */
-        if (strchr(trimmed, '<')) {
-            /* This is HTML/autolink, not metadata */
-            if (found_metadata) {
-                *consumed = line_start - text;
-                return items;
-            }
-            /* Haven't found metadata yet - this isn't metadata */
-            *consumed = 0;
-            return NULL;
-        }
-
         /* Parse key: value */
         char *colon = strchr(line, ':');
         if (colon) {
@@ -236,6 +224,17 @@ static apex_metadata_item *parse_mmd_metadata(const char *text, size_t *consumed
                 (key_len >= 7 && strncmp(line, "mailto:", 7) == 0) ||
                 strstr(line, "://") != NULL)) {
                 /* Protocol found before colon - this is a URL, not metadata */
+                if (found_metadata) {
+                    *consumed = line_start - text;
+                    return items;
+                }
+                *consumed = 0;
+                return NULL;
+            }
+
+            /* Check if there's a < character BEFORE the colon (HTML/autolink in key) */
+            if (memchr(line, '<', key_len) != NULL) {
+                /* < found before colon - this is HTML/autolink, not metadata */
                 if (found_metadata) {
                     *consumed = line_start - text;
                     return items;

@@ -963,6 +963,17 @@ char *apex_markdown_to_html(const char *markdown, size_t len, const apex_options
         abbreviations = apex_extract_abbreviations(&text_ptr);
     }
 
+    /* Apply metadata variable replacement BEFORE autolinking
+     * This ensures replaced URLs get autolinked
+     */
+    char *metadata_replaced = NULL;
+    if (metadata && options->enable_metadata_variables) {
+        metadata_replaced = apex_metadata_replace_variables(text_ptr, metadata);
+        if (metadata_replaced) {
+            text_ptr = metadata_replaced;
+        }
+    }
+
     /* Preprocess autolinks FIRST to convert <https://...> to [https://...](https://...)
      * This must happen before other processors that might treat angle brackets as HTML
      * Note: Even with autolink extension enabled, preprocessing ensures compatibility
@@ -1163,12 +1174,17 @@ char *apex_markdown_to_html(const char *markdown, size_t len, const apex_options
         }
     }
 
-    /* Apply metadata variable replacement if enabled */
+    /* Apply metadata variable replacement if enabled (post-processing for HTML attributes, etc.)
+     * Note: Most replacements happen in preprocessing, but this handles edge cases in HTML
+     */
     if (metadata && options->enable_metadata_variables && html) {
         char *replaced = apex_metadata_replace_variables(html, metadata);
-        if (replaced) {
+        if (replaced && replaced != html) {
             free(html);
             html = replaced;
+        } else if (replaced == html) {
+            /* No replacements found, free the duplicate */
+            free(replaced);
         }
     }
 
@@ -1252,6 +1268,7 @@ char *apex_markdown_to_html(const char *markdown, size_t len, const apex_options
     if (alpha_lists_processed) free(alpha_lists_processed);
     if (relaxed_tables_processed) free(relaxed_tables_processed);
     if (deflist_processed) free(deflist_processed);
+    if (metadata_replaced) free(metadata_replaced);
     if (autolinks_processed) free(autolinks_processed);
     if (html_markdown_processed) free(html_markdown_processed);
     if (critic_processed) free(critic_processed);
