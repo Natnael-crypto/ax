@@ -72,6 +72,9 @@ If no file is specified, **apex** reads from stdin.
 **--header-anchors**
 :   Generate `<a>` anchor tags instead of header IDs.
 
+**--wikilinks**, **--no-wikilinks**
+:   Enable wiki link syntax `[[PageName]]`. Default: disabled.
+
 ## Header ID Format
 
 **--id-format** *FORMAT*
@@ -97,6 +100,9 @@ If no file is specified, **apex** reads from stdin.
 
 **--autolink**, **--no-autolink**
 :   Enable autolinking of URLs and email addresses. Default: enabled in GFM, MultiMarkdown, Kramdown, and unified modes; disabled in CommonMark mode.
+
+**--obfuscate-emails**
+:   Obfuscate email links and text using HTML entities (hex-encoded).
 
 ## Superscript/Subscript
 

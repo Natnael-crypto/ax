@@ -70,6 +70,10 @@ Disable automatic header ID generation.
 .TP
 \f[B]\[en]header\-anchors\f[R]
 Generate \f[CR]<a>\f[R] anchor tags instead of header IDs.
+.TP
+\f[B]\[en]wikilinks\f[R], \f[B]\[en]no\-wikilinks\f[R]
+Enable wiki link syntax \f[CR][[PageName]]\f[R].
+Default: disabled.
 .SS Header ID Format
 .TP
 \f[B]\[en]id\-format\f[R] \f[I]FORMAT\f[R]
@@ -100,6 +104,9 @@ modes.
 Enable autolinking of URLs and email addresses.
 Default: enabled in GFM, MultiMarkdown, Kramdown, and unified modes;
 disabled in CommonMark mode.
+.TP
+\f[B]\[en]obfuscate\-emails\f[R]
+Obfuscate email links and text using HTML entities (hex\-encoded).
 .SS Superscript/Subscript
 .TP
 \f[B]\[en]sup\-sub\f[R], \f[B]\[en]no\-sup\-sub\f[R]

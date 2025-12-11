@@ -829,7 +829,7 @@ apex_options apex_options_default(void) {
     opts.enable_smart_typography = true;
     opts.enable_math = true;
     opts.enable_critic_markup = true;
-    opts.enable_wiki_links = true;
+    opts.enable_wiki_links = false;  /* Disabled by default - use --wikilinks to enable */
     opts.enable_task_lists = true;
     opts.enable_attributes = true;
     opts.enable_callouts = true;
@@ -992,7 +992,7 @@ apex_options apex_options_for_mode(apex_mode_t mode) {
         case APEX_MODE_UNIFIED:
             /* All features enabled - already the default */
             /* Unified mode should have everything on */
-            opts.enable_wiki_links = true;
+            opts.enable_wiki_links = false;  /* Disabled by default - use --wikilinks to enable */
             opts.enable_math = true;
             opts.id_format = 0;  /* GFM format (default, can be overridden with --id-format) */
             opts.relaxed_tables = true;  /* Unified mode supports relaxed tables */

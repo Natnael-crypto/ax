@@ -22,23 +22,18 @@ class Apex < Formula
   end
 
   def install
-    # Create build directory
-    mkdir "build" do
-      # Configure with CMake (need policy version for cmark-gfm compatibility with newer CMake)
-      system "cmake", "-S", "..", "-B", ".",
-             "-DCMAKE_BUILD_TYPE=Release",
-             "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
+    # Configure with CMake in a separate build directory
+    system "cmake", "-S", ".", "-B", "build",
+           "-DCMAKE_BUILD_TYPE=Release",
+           "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
 
-      # Build CLI executable (not framework)
-      # Man page is pre-generated in the repository
-      system "cmake", "--build", ".", "--target", "apex_cli"
+    # Build CLI executable (not framework)
+    # Man page is pre-generated in the repository
+    system "cmake", "--build", "build", "--target", "apex_cli"
 
-      # Install binary
-      bin.install "apex"
-
-      # Install pre-generated man page
-      man1.install "man/apex.1"
-    end
+    # Install binary and man page
+    bin.install "build/apex"
+    man1.install "man/apex.1"
   end
 
   test do

@@ -38,6 +38,7 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "  --[no-]relaxed-tables  Enable relaxed table parsing (no separator rows required)\n");
     fprintf(stderr, "  --[no-]sup-sub         Enable MultiMarkdown-style superscript (^text^) and subscript (~text~) syntax\n");
     fprintf(stderr, "  --[no-]unsafe          Allow raw HTML in output (default: true for unified/mmd/kramdown, false for commonmark/gfm)\n");
+    fprintf(stderr, "  --[no-]wikilinks       Enable wiki link syntax [[PageName]] (disabled by default)\n");
     fprintf(stderr, "  --reject               Reject all Critic Markup changes (revert edits)\n");
     fprintf(stderr, "  -s, --standalone       Generate complete HTML document (with <html>, <head>, <body>)\n");
     fprintf(stderr, "  --style FILE           Link to CSS file in document head (requires --standalone)\n");
@@ -245,6 +246,10 @@ int main(int argc, char *argv[]) {
             options.enable_autolink = false;
         } else if (strcmp(argv[i], "--obfuscate-emails") == 0) {
             options.obfuscate_emails = true;
+        } else if (strcmp(argv[i], "--wikilinks") == 0) {
+            options.enable_wiki_links = true;
+        } else if (strcmp(argv[i], "--no-wikilinks") == 0) {
+            options.enable_wiki_links = false;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
             print_usage(argv[0]);
