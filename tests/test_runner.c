@@ -40,6 +40,25 @@ static bool assert_contains(const char *haystack, const char *needle, const char
 }
 
 /**
+ * Assert that string does NOT contain substring
+ */
+static bool assert_not_contains(const char *haystack, const char *needle, const char *test_name) {
+    tests_run++;
+
+    if (strstr(haystack, needle) == NULL) {
+        tests_passed++;
+        printf(COLOR_GREEN "✓" COLOR_RESET " %s\n", test_name);
+        return true;
+    } else {
+        tests_failed++;
+        printf(COLOR_RED "✗" COLOR_RESET " %s\n", test_name);
+        printf("  Should NOT contain: %s\n", needle);
+        printf("  But found in:        %s\n", haystack);
+        return false;
+    }
+}
+
+/**
  * Test basic markdown features
  */
 static void test_basic_markdown(void) {
@@ -377,6 +396,53 @@ static void test_file_includes(void) {
     html = apex_markdown_to_html("/code.py", 8, &opts);
     assert_contains(html, "<pre", "iA Writer code include");
     assert_contains(html, "def hello", "Code included");
+    apex_free_string(html);
+
+    /* Test MMD address syntax - line range */
+    html = apex_markdown_to_html("{{simple.md}}[3,5]", 20, &opts);
+    assert_contains(html, "This is a simple", "Line range includes line 3");
+    assert_contains(html, "markdown file", "Line range includes line 4");
+    assert_not_contains(html, "Included Content", "Line range excludes line 1");
+    assert_not_contains(html, "List item 1", "Line range excludes line 5 and beyond");
+    apex_free_string(html);
+
+    /* Test MMD address syntax - from line to end */
+    html = apex_markdown_to_html("{{simple.md}}[5,]", 19, &opts);
+    assert_contains(html, "List item 1", "From line includes line 5");
+    assert_contains(html, "List item 2", "From line includes later lines");
+    assert_not_contains(html, "Included Content", "From line excludes earlier lines");
+    apex_free_string(html);
+
+    /* Test MMD address syntax - prefix */
+    html = apex_markdown_to_html("{{code.py}}[1,3;prefix=\"C: \"]", 30, &opts);
+    assert_contains(html, "C: def hello()", "Prefix applied to included lines");
+    assert_contains(html, "C:     print", "Prefix applied to all lines");
+    apex_free_string(html);
+
+    /* Test Marked address syntax - line range */
+    html = apex_markdown_to_html("<<[simple.md][3,5]", 20, &opts);
+    assert_contains(html, "This is a simple", "Marked syntax with line range");
+    assert_not_contains(html, "Included Content", "Line range excludes header");
+    apex_free_string(html);
+
+    /* Test Marked code include with address syntax */
+    html = apex_markdown_to_html("<<(code.py)[1,3]", 18, &opts);
+    assert_contains(html, "def hello()", "Code include with line range");
+    assert_contains(html, "print", "Code include includes second line");
+    assert_not_contains(html, "return True", "Code include excludes later lines");
+    apex_free_string(html);
+
+    /* Test regex address syntax */
+    html = apex_markdown_to_html("{{simple.md}}[/This is/,/List item/]", 36, &opts);
+    assert_contains(html, "This is a simple", "Regex range includes matching line");
+    assert_contains(html, "markdown file", "Regex range includes lines between matches");
+    assert_not_contains(html, "Included Content", "Regex range excludes before first match");
+    apex_free_string(html);
+
+    /* Verify iA Writer syntax is NOT affected (no address syntax) */
+    html = apex_markdown_to_html("/code.py", 8, &opts);
+    assert_contains(html, "def hello()", "iA Writer syntax unchanged");
+    assert_contains(html, "return True", "iA Writer includes full file");
     apex_free_string(html);
 }
 
@@ -1095,6 +1161,28 @@ static void test_special_markers(void) {
     html = apex_markdown_to_html(eob, strlen(eob), &opts);
     // End of block should separate lists
     assert_contains(html, "<ul>", "Lists created");
+    apex_free_string(html);
+
+    /* Test empty HTML comment as block separator (CommonMark spec) */
+    const char *html_comment_separator = "- foo\n- bar\n\n<!-- -->\n\n- baz\n- bim";
+    html = apex_markdown_to_html(html_comment_separator, strlen(html_comment_separator), &opts);
+    // Should create two separate lists, not one merged list
+    const char *first_ul = strstr(html, "<ul>");
+    const char *second_ul = first_ul ? strstr(first_ul + 1, "<ul>") : NULL;
+    if (second_ul != NULL) {
+        tests_passed++;
+        tests_run++;
+        printf(COLOR_GREEN "✓" COLOR_RESET " Empty HTML comment separates lists\n");
+    } else {
+        tests_failed++;
+        tests_run++;
+        printf(COLOR_RED "✗" COLOR_RESET " Empty HTML comment does not separate lists\n");
+    }
+    assert_contains(html, "<li>foo</li>", "First list contains foo");
+    assert_contains(html, "<li>bar</li>", "First list contains bar");
+    assert_contains(html, "<li>baz</li>", "Second list contains baz");
+    assert_contains(html, "<li>bim</li>", "Second list contains bim");
+    assert_contains(html, "<!-- -->", "Empty HTML comment preserved");
     apex_free_string(html);
 
     /* Test multiple page breaks */

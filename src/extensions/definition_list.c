@@ -221,7 +221,6 @@ char *apex_process_definition_lists(const char *text) {
         /* Check for blockquote prefix (may be nested: > > >) */
         bool has_blockquote_prefix = false;
         int current_blockquote_depth = 0;
-        const char *blockquote_start = p;
         while (p < line_end && *p == '>') {
             has_blockquote_prefix = true;
             current_blockquote_depth++;
