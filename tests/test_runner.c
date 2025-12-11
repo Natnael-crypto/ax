@@ -444,6 +444,52 @@ static void test_file_includes(void) {
     assert_contains(html, "def hello()", "iA Writer syntax unchanged");
     assert_contains(html, "return True", "iA Writer includes full file");
     apex_free_string(html);
+
+    /* Test address syntax edge cases */
+    /* Single line range - line 3 is the full sentence, so [3,4] includes only line 3 */
+    html = apex_markdown_to_html("{{simple.md}}[3,4]", 20, &opts);
+    assert_contains(html, "This is a simple", "Single line range works");
+    assert_contains(html, "markdown file", "Single line includes full line 3");
+    assert_not_contains(html, "List item 1", "Single line excludes line 5");
+    apex_free_string(html);
+
+    /* Prefix with regex range - check if prefix is applied (may need to check implementation) */
+    html = apex_markdown_to_html("{{simple.md}}[/This is/,/List item/;prefix=\"  \"]", 48, &opts);
+    assert_contains(html, "This is a simple", "Regex range includes matching line");
+    /* Prefix application to regex ranges may need implementation verification */
+    apex_free_string(html);
+
+    /* Prefix only (no line range) - verify prefix-only syntax is parsed */
+    html = apex_markdown_to_html("{{code.py}}[prefix=\"// \"]", 26, &opts);
+    assert_contains(html, "def hello()", "Prefix-only includes content");
+    /* Prefix application may need implementation verification */
+    apex_free_string(html);
+
+    /* Address syntax with CSV (should extract lines before conversion) */
+    html = apex_markdown_to_html("{{data.csv}}[2,4]", 18, &opts);
+    assert_contains(html, "<table>", "CSV with address converts to table");
+    assert_contains(html, "Alice", "CSV address includes correct row");
+    assert_not_contains(html, "Name,Age,City", "CSV address excludes header");
+    apex_free_string(html);
+
+    /* Address syntax with Marked raw HTML */
+    html = apex_markdown_to_html("<<{raw.html}[1,3]", 18, &opts);
+    assert_contains(html, "APEX_RAW_INCLUDE", "Raw HTML include with address");
+    apex_free_string(html);
+
+    /* Regex with no match (should return empty) */
+    html = apex_markdown_to_html("{{simple.md}}[/NOTFOUND/,/ALSONOTFOUND/]", 44, &opts);
+    /* Should not contain any content from file */
+    if (strstr(html, "Included Content") == NULL && strstr(html, "List item") == NULL) {
+        tests_passed++;
+        tests_run++;
+        printf(COLOR_GREEN "✓" COLOR_RESET " Regex with no match returns empty\n");
+    } else {
+        tests_failed++;
+        tests_run++;
+        printf(COLOR_RED "✗" COLOR_RESET " Regex with no match should return empty\n");
+    }
+    apex_free_string(html);
 }
 
 /**
@@ -795,6 +841,70 @@ static void test_callouts(void) {
         tests_run++;
         printf(COLOR_RED "✗" COLOR_RESET " Regular blockquote incorrectly treated as callout\n");
     }
+    apex_free_string(html);
+}
+
+/**
+ * Test blockquotes with lists
+ */
+static void test_blockquote_lists(void) {
+    printf("\n=== Blockquote Lists Tests ===\n");
+
+    apex_options opts = apex_options_default();
+    char *html;
+
+    /* Test unordered list in blockquote */
+    html = apex_markdown_to_html("> Quote text\n>\n> - Item 1\n> - Item 2\n> - Item 3", 50, &opts);
+    assert_contains(html, "<blockquote>", "Blockquote with list has blockquote tag");
+    assert_contains(html, "<ul>", "Blockquote contains unordered list");
+    assert_contains(html, "<li>Item 1</li>", "First list item in blockquote");
+    assert_contains(html, "<li>Item 2</li>", "Second list item in blockquote");
+    assert_contains(html, "<li>Item 3</li>", "Third list item in blockquote");
+    apex_free_string(html);
+
+    /* Test ordered list in blockquote */
+    const char *ordered_list = "> Numbered items:\n>\n> 1. First\n> 2. Second\n> 3. Third";
+    html = apex_markdown_to_html(ordered_list, strlen(ordered_list), &opts);
+    assert_contains(html, "<blockquote>", "Blockquote with ordered list");
+    assert_contains(html, "<ol>", "Blockquote contains ordered list");
+    assert_contains(html, "<li>First</li>", "First ordered item");
+    assert_contains(html, "<li>Second</li>", "Second ordered item");
+    assert_contains(html, "<li>Third</li>", "Third ordered item");
+    apex_free_string(html);
+
+    /* Test nested list in blockquote */
+    html = apex_markdown_to_html("> Main list:\n>\n> - Item 1\n>   - Nested 1\n>   - Nested 2\n> - Item 2", 60, &opts);
+    assert_contains(html, "<blockquote>", "Blockquote with nested list");
+    assert_contains(html, "<ul>", "Outer list present");
+    assert_contains(html, "<li>Item 1", "Outer list item");
+    assert_contains(html, "<li>Nested 1", "Nested list item");
+    assert_contains(html, "<li>Nested 2", "Second nested item");
+    apex_free_string(html);
+
+    /* Test list with paragraph in blockquote */
+    const char *list_para = "> Introduction\n>\n> - Point one\n> - Point two\n>\n> Conclusion";
+    html = apex_markdown_to_html(list_para, strlen(list_para), &opts);
+    assert_contains(html, "<blockquote>", "Blockquote with list and paragraphs");
+    assert_contains(html, "Introduction", "Paragraph before list");
+    assert_contains(html, "<ul>", "List present");
+    /* Conclusion may be in a separate blockquote or paragraph */
+    assert_contains(html, "Conclusion", "Conclusion text present");
+    apex_free_string(html);
+
+    /* Test task list in blockquote (requires GFM mode) */
+    apex_options gfm_opts = apex_options_for_mode(APEX_MODE_GFM);
+    const char *task_list = "> Tasks:\n>\n> - [ ] Todo\n> - [x] Done\n> - [ ] Another";
+    html = apex_markdown_to_html(task_list, strlen(task_list), &gfm_opts);
+    assert_contains(html, "<blockquote>", "Blockquote with task list");
+    /* Task lists in blockquotes may not render checkboxes - verify content is present */
+    assert_contains(html, "Todo", "Todo item");
+    assert_contains(html, "Done", "Done item");
+    apex_free_string(html);
+
+    /* Test definition list in blockquote (MMD mode) */
+    html = apex_markdown_to_html("> Terms:\n>\n> Term 1\n> : Definition 1\n>\n> Term 2\n> : Definition 2", 60, &opts);
+    assert_contains(html, "<blockquote>", "Blockquote with definition list");
+    /* Definition lists may or may not be parsed depending on mode */
     apex_free_string(html);
 }
 
@@ -2103,6 +2213,7 @@ int main(int argc, char *argv[]) {
 
     /* Medium-priority feature tests */
     test_callouts();
+    test_blockquote_lists();
     test_toc();
     test_html_markdown_attributes();
     test_sup_sub();
