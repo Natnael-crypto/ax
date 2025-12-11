@@ -225,6 +225,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Based on [cmark-gfm](https://github.com/github/cmark-gfm) by GitHub
 - Developed for [Marked](https://marked2app.com) by Brett Terpstra
 
+[0.1.20]: https://github.com/ttscoff/apex/releases/tag/v0.1.20
+[0.1.19]: https://github.com/ttscoff/apex/releases/tag/v0.1.19
 [0.1.18]: https://github.com/ttscoff/apex/releases/tag/v0.1.18
 [0.1.17]: https://github.com/ttscoff/apex/releases/tag/v0.1.17
 [0.1.16]: https://github.com/ttscoff/apex/releases/tag/v0.1.16
