@@ -35,6 +35,119 @@
 #include "html_renderer.h"
 
 /**
+ * Encode a string as hexadecimal HTML entities (&#xNN;)
+ * Caller must free the returned buffer.
+ */
+static char *apex_encode_hex_entities(const char *text, size_t len) {
+    if (!text || len == 0) return NULL;
+    /* Each char becomes &#xNN; => up to 6 chars */
+    size_t cap = len * 6 + 1;
+    char *out = malloc(cap);
+    if (!out) return NULL;
+
+    char *w = out;
+    for (size_t i = 0; i < len; i++) {
+        int written = snprintf(w, cap - (size_t)(w - out), "&#x%02X;", (unsigned char)text[i]);
+        if (written <= 0 || (size_t)written >= cap - (size_t)(w - out)) {
+            free(out);
+            return NULL;
+        }
+        w += written;
+    }
+    *w = '\0';
+    return out;
+}
+
+/**
+ * Obfuscate mailto: links in rendered HTML by converting href/text
+ * characters to hexadecimal HTML entities.
+ */
+static char *apex_obfuscate_email_links(const char *html) {
+    if (!html) return NULL;
+
+    size_t cap = strlen(html) * 6 + 1; /* generous for expansion */
+    char *out = malloc(cap);
+    if (!out) return NULL;
+
+    const char *p = html;
+    char *w = out;
+    bool in_mailto = false;
+
+    while (*p) {
+        /* Obfuscate href="mailto:... */
+        if (!in_mailto && strncmp(p, "href=\"mailto:", 13) == 0) {
+            const char *addr_start = p + 6; /* keep mailto: prefix in output */
+            const char *addr_end = strchr(addr_start, '"');
+            if (!addr_end) {
+                *w++ = *p++;
+                continue;
+            }
+
+            char *encoded = apex_encode_hex_entities(addr_start, (size_t)(addr_end - addr_start));
+            if (encoded) {
+                size_t needed = 6 + strlen(encoded) + 1; /* href=" + encoded + closing quote */
+                size_t used = (size_t)(w - out);
+                if (used + needed >= cap) {
+                    cap = (used + needed + 1) * 2;
+                    char *new_out = realloc(out, cap);
+                    if (!new_out) {
+                        free(out);
+                        free(encoded);
+                        return NULL;
+                    }
+                    out = new_out;
+                    w = out + used;
+                }
+                memcpy(w, "href=\"", 6); w += 6;
+                memcpy(w, encoded, strlen(encoded)); w += strlen(encoded);
+                *w++ = '"';
+                free(encoded);
+                p = addr_end + 1;
+                in_mailto = true;
+                continue;
+            }
+        }
+
+        /* Encode visible link text for mailto links */
+        if (in_mailto && *p == '>') {
+            *w++ = *p++;
+            const char *text_start = p;
+            while (*p && *p != '<') p++;
+            char *encoded_text = apex_encode_hex_entities(text_start, (size_t)(p - text_start));
+            if (encoded_text) {
+                size_t needed = strlen(encoded_text);
+                size_t used = (size_t)(w - out);
+                if (used + needed >= cap) {
+                    cap = (used + needed + 1) * 2;
+                    char *new_out = realloc(out, cap);
+                    if (!new_out) {
+                        free(out);
+                        free(encoded_text);
+                        return NULL;
+                    }
+                    out = new_out;
+                    w = out + used;
+                }
+                memcpy(w, encoded_text, needed);
+                w += needed;
+                free(encoded_text);
+                continue;
+            }
+        }
+
+        /* Detect end of link */
+        if (in_mailto && strncmp(p, "</a", 3) == 0) {
+            in_mailto = false;
+        }
+
+        *w++ = *p++;
+    }
+
+    *w = '\0';
+    return out;
+}
+
+/**
  * Preprocess angle-bracket autolinks (<http://...>) into explicit links
  * and convert bare URLs/emails to explicit links so they survive
  * custom rendering paths.
@@ -166,12 +279,42 @@ static char *apex_preprocess_autolinks(const char *text, const apex_options *opt
             while (*end && !isspace((unsigned char)*end) && *end != '<' && *end != '>') end++;
             size_t url_len = (size_t)(end - start);
 
+            /* Trim trailing punctuation that should not be part of the link */
+            while (url_len > 0 &&
+                   (start[url_len - 1] == '.' ||
+                    start[url_len - 1] == ',' ||
+                    start[url_len - 1] == ';' ||
+                    start[url_len - 1] == ':')) {
+                url_len--;
+                end--;
+            }
+
+            /* Prepare link and href text */
+            const char *link_text = start;
+            size_t link_text_len = url_len;
+            const char *href_text = start;
+            size_t href_len = url_len;
+            bool needs_mailto_prefix = is_email_start &&
+                                       !(url_len >= 7 && strncmp(start, "mailto:", 7) == 0);
+            char *mailto_buf = NULL;
+
+            if (needs_mailto_prefix) {
+                href_len += 7; /* "mailto:" */
+                mailto_buf = malloc(href_len + 1);
+                if (mailto_buf) {
+                    memcpy(mailto_buf, "mailto:", 7);
+                    memcpy(mailto_buf + 7, start, url_len);
+                    mailto_buf[href_len] = '\0';
+                    href_text = mailto_buf;
+                }
+            }
+
             /* Heuristic: skip if preceded by '(' or '[' (likely already a link) */
             /* Also skip if this is a single '#' at start of line (header marker) */
             if (url_len > 0 &&
                 !(r > text && (r[-1] == '(' || r[-1] == '[')) &&
                 !(r == text && *r == '#' && (r[1] == ' ' || r[1] == '\t' || r[1] == '\n'))) {
-                size_t needed = 2 + url_len + 3 + url_len + 2; /* [url](url) */
+                size_t needed = 2 + link_text_len + 3 + href_len + 2; /* [text](href) */
                 if ((size_t)(w - out) + needed + 1 > cap) {
                     size_t used = (size_t)(w - out);
                     cap = (used + needed + 1) * 2;
@@ -181,13 +324,15 @@ static char *apex_preprocess_autolinks(const char *text, const apex_options *opt
                     w = out + used;
                 }
                 *w++ = '[';
-                memcpy(w, start, url_len); w += url_len;
+                memcpy(w, link_text, link_text_len); w += link_text_len;
                 *w++ = ']'; *w++ = '(';
-                memcpy(w, start, url_len); w += url_len;
+                memcpy(w, href_text, href_len); w += href_len;
                 *w++ = ')';
                 r = end;
+                free(mailto_buf);
                 continue;
             }
+            free(mailto_buf);
         }
 
         *w++ = *r++;
@@ -701,6 +846,7 @@ apex_options apex_options_default(void) {
 
     /* Autolink options */
     opts.enable_autolink = true;  /* Default: enabled in unified mode */
+    opts.obfuscate_emails = false; /* Default: plaintext emails */
 
     return opts;
 }
@@ -1207,6 +1353,15 @@ char *apex_markdown_to_html(const char *markdown, size_t len, const apex_options
         if (processed_html && processed_html != html) {
             free(html);
             html = processed_html;
+        }
+    }
+
+    /* Obfuscate email links if requested */
+    if (options->obfuscate_emails && html) {
+        char *obfuscated = apex_obfuscate_email_links(html);
+        if (obfuscated) {
+            free(html);
+            html = obfuscated;
         }
     }
 

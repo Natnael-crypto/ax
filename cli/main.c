@@ -34,6 +34,7 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "  -o, --output FILE      Write output to FILE instead of stdout\n");
     fprintf(stderr, "  --pretty               Pretty-print HTML with indentation and whitespace\n");
     fprintf(stderr, "  --[no-]autolink        Enable autolinking of URLs and email addresses\n");
+    fprintf(stderr, "  --obfuscate-emails     Obfuscate email links/text using HTML entities\n");
     fprintf(stderr, "  --[no-]relaxed-tables  Enable relaxed table parsing (no separator rows required)\n");
     fprintf(stderr, "  --[no-]sup-sub         Enable MultiMarkdown-style superscript (^text^) and subscript (~text~) syntax\n");
     fprintf(stderr, "  --[no-]unsafe          Allow raw HTML in output (default: true for unified/mmd/kramdown, false for commonmark/gfm)\n");
@@ -242,6 +243,8 @@ int main(int argc, char *argv[]) {
             options.enable_autolink = true;
         } else if (strcmp(argv[i], "--no-autolink") == 0) {
             options.enable_autolink = false;
+        } else if (strcmp(argv[i], "--obfuscate-emails") == 0) {
+            options.obfuscate_emails = true;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
             print_usage(argv[0]);

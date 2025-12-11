@@ -92,6 +92,7 @@ typedef struct {
 
     /* Autolink options */
     bool enable_autolink;  /* Enable autolinking of URLs and email addresses */
+    bool obfuscate_emails; /* Obfuscate email links/text using HTML entities */
 } apex_options;
 
 /**
