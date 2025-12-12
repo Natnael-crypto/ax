@@ -56,6 +56,7 @@ typedef struct {
     /* Metadata handling */
     bool strip_metadata;
     bool enable_metadata_variables;  /* [%key] replacement */
+    bool enable_metadata_transforms; /* [%key:transform] transforms */
 
     /* File inclusion */
     bool enable_file_includes;

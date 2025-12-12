@@ -30,6 +30,7 @@ Apex is a unified Markdown processor that combines the best features from Common
 
 - **Metadata blocks**: YAML front matter, MultiMarkdown metadata, and Pandoc title blocks
 - **Metadata variables**: Insert metadata values with `[%key]` syntax
+- **Metadata transforms**: Transform metadata values with `[%key:transform]` syntax - supports case conversion, string manipulation, regex replacement, date formatting, and more. See [Metadata Transforms](https://github.com/ttscoff/apex/wiki/Metadata-Transforms) for complete documentation
 - **Table of Contents**: Automatic TOC generation with depth control (`<!--TOC-->`, `{{TOC}}`)
 - **File includes**: Three syntaxes (Marked `<<[file]`, MultiMarkdown `{{file}}`, iA Writer `/file`)
 - **CSV/TSV support**: Automatic table conversion from CSV and TSV files

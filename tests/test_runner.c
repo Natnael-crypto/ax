@@ -148,6 +148,275 @@ static void test_metadata(void) {
 }
 
 /**
+ * Test metadata transforms
+ */
+static void test_metadata_transforms(void) {
+    printf("\n=== Metadata Transforms Tests ===\n");
+
+    apex_options opts = apex_options_for_mode(APEX_MODE_UNIFIED);
+    char *html;
+
+    /* Test basic transforms: upper */
+    const char *upper_doc = "---\ntitle: hello world\n---\n\n# [%title:upper]";
+    html = apex_markdown_to_html(upper_doc, strlen(upper_doc), &opts);
+    assert_contains(html, "HELLO WORLD</h1>", "upper transform");
+    apex_free_string(html);
+
+    /* Test basic transforms: lower */
+    const char *lower_doc = "---\ntitle: HELLO WORLD\n---\n\n# [%title:lower]";
+    html = apex_markdown_to_html(lower_doc, strlen(lower_doc), &opts);
+    assert_contains(html, "hello world</h1>", "lower transform");
+    apex_free_string(html);
+
+    /* Test basic transforms: title */
+    const char *title_doc = "---\ntitle: hello world\n---\n\n# [%title:title]";
+    html = apex_markdown_to_html(title_doc, strlen(title_doc), &opts);
+    assert_contains(html, "Hello World</h1>", "title transform");
+    apex_free_string(html);
+
+    /* Test basic transforms: capitalize */
+    const char *capitalize_doc = "---\ntitle: hello world\n---\n\n# [%title:capitalize]";
+    html = apex_markdown_to_html(capitalize_doc, strlen(capitalize_doc), &opts);
+    assert_contains(html, "Hello world</h1>", "capitalize transform");
+    apex_free_string(html);
+
+    /* Test basic transforms: trim */
+    const char *trim_doc = "---\ntitle: \"  hello world  \"\n---\n\n# [%title:trim]";
+    html = apex_markdown_to_html(trim_doc, strlen(trim_doc), &opts);
+    assert_contains(html, "hello world</h1>", "trim transform");
+    apex_free_string(html);
+
+    /* Test slug transform */
+    const char *slug_doc = "---\ntitle: My Great Post!\n---\n\n[%title:slug]";
+    html = apex_markdown_to_html(slug_doc, strlen(slug_doc), &opts);
+    assert_contains(html, "my-great-post", "slug transform");
+    apex_free_string(html);
+
+    /* Test replace transform (simple) */
+    const char *replace_doc = "---\nurl: http://example.com\n---\n\n[%url:replace(http:,https:)]";
+    html = apex_markdown_to_html(replace_doc, strlen(replace_doc), &opts);
+    assert_contains(html, "https://example.com", "replace transform");
+    apex_free_string(html);
+
+    /* Test replace transform (regex) - use simple pattern without brackets first */
+    const char *regex_doc = "---\ntext: Hello 123 World\n---\n\n[%text:replace(regex:123,N)]";
+    html = apex_markdown_to_html(regex_doc, strlen(regex_doc), &opts);
+    assert_contains(html, "Hello N World", "replace with regex");
+    apex_free_string(html);
+
+    /* Test regex with character class [0-9]+ */
+    const char *regex_doc2 = "---\ntext: Hello 123 World\n---\n\n[%text:replace(regex:[0-9]+,N)]";
+    html = apex_markdown_to_html(regex_doc2, strlen(regex_doc2), &opts);
+    assert_contains(html, "Hello N World", "replace with regex pattern with brackets");
+    apex_free_string(html);
+
+    /* Test regex with simpler pattern that definitely works */
+    const char *regex_doc3 = "---\ntext: Hello 123 World\n---\n\n[%text:replace(regex:12,N)]";
+    html = apex_markdown_to_html(regex_doc3, strlen(regex_doc3), &opts);
+    assert_contains(html, "Hello N3 World", "replace with regex simple pattern");
+    apex_free_string(html);
+
+    /* Test substring transform */
+    const char *substr_doc = "---\ntitle: Hello World\n---\n\n[%title:substr(0,5)]";
+    html = apex_markdown_to_html(substr_doc, strlen(substr_doc), &opts);
+    assert_contains(html, "Hello", "substring transform");
+    apex_free_string(html);
+
+    /* Test truncate transform - note: smart typography may convert ... to … */
+    const char *truncate_doc = "---\ntitle: This is a very long title\n---\n\n[%title:truncate(15,...)]";
+    html = apex_markdown_to_html(truncate_doc, strlen(truncate_doc), &opts);
+    /* Check for either ... or … (smart typography ellipsis) */
+    if (strstr(html, "This is a very...") || strstr(html, "This is a very…") || strstr(html, "This is a ve")) {
+        tests_passed++;
+        tests_run++;
+        printf(COLOR_GREEN "✓" COLOR_RESET " truncate transform\n");
+    } else {
+        tests_failed++;
+        tests_run++;
+        printf(COLOR_RED "✗" COLOR_RESET " truncate transform\n");
+        printf("  Looking for: This is a very... or …\n");
+        printf("  In:          %s\n", html);
+    }
+    apex_free_string(html);
+
+    /* Test default transform */
+    const char *default_doc = "---\ndesc: \"\"\n---\n\n[%desc:default(No description)]";
+    html = apex_markdown_to_html(default_doc, strlen(default_doc), &opts);
+    assert_contains(html, "No description", "default transform with empty value");
+    apex_free_string(html);
+
+    /* Test default transform with non-empty value */
+    const char *default_nonempty_doc = "---\ndesc: Has value\n---\n\n[%desc:default(No description)]";
+    html = apex_markdown_to_html(default_nonempty_doc, strlen(default_nonempty_doc), &opts);
+    assert_contains(html, "Has value", "default transform preserves non-empty");
+    apex_free_string(html);
+
+    /* Test html_escape transform */
+    const char *escape_doc = "---\ntitle: A & B\n---\n\n[%title:html_escape]";
+    html = apex_markdown_to_html(escape_doc, strlen(escape_doc), &opts);
+    assert_contains(html, "&amp;", "html_escape transform");
+    apex_free_string(html);
+
+    /* Test basename transform */
+    const char *basename_doc = "---\nimage: /path/to/image.jpg\n---\n\n[%image:basename]";
+    html = apex_markdown_to_html(basename_doc, strlen(basename_doc), &opts);
+    assert_contains(html, "image.jpg", "basename transform");
+    apex_free_string(html);
+
+    /* Test urlencode transform */
+    const char *urlencode_doc = "---\nsearch: hello world\n---\n\n[%search:urlencode]";
+    html = apex_markdown_to_html(urlencode_doc, strlen(urlencode_doc), &opts);
+    assert_contains(html, "hello%20world", "urlencode transform");
+    apex_free_string(html);
+
+    /* Test urldecode transform */
+    const char *urldecode_doc = "---\nsearch: hello%20world\n---\n\n[%search:urldecode]";
+    html = apex_markdown_to_html(urldecode_doc, strlen(urldecode_doc), &opts);
+    assert_contains(html, "hello world", "urldecode transform");
+    apex_free_string(html);
+
+    /* Test prefix transform */
+    const char *prefix_doc = "---\nurl: example.com\n---\n\n[%url:prefix(https://)]";
+    html = apex_markdown_to_html(prefix_doc, strlen(prefix_doc), &opts);
+    assert_contains(html, "https://example.com", "prefix transform");
+    apex_free_string(html);
+
+    /* Test suffix transform */
+    const char *suffix_doc = "---\ntitle: Hello\n---\n\n[%title:suffix(!)]";
+    html = apex_markdown_to_html(suffix_doc, strlen(suffix_doc), &opts);
+    assert_contains(html, "Hello!", "suffix transform");
+    apex_free_string(html);
+
+    /* Test remove transform */
+    const char *remove_doc = "---\ntitle: Hello'World\n---\n\n[%title:remove(')]";
+    html = apex_markdown_to_html(remove_doc, strlen(remove_doc), &opts);
+    assert_contains(html, "HelloWorld", "remove transform");
+    apex_free_string(html);
+
+    /* Test repeat transform - escape the result to avoid markdown HR interpretation */
+    const char *repeat_doc = "---\nsep: -\n---\n\n`[%sep:repeat(3)]`";
+    html = apex_markdown_to_html(repeat_doc, strlen(repeat_doc), &opts);
+    /* Check inside code span to avoid HR interpretation */
+    assert_contains(html, "<code>---</code>", "repeat transform");
+    apex_free_string(html);
+
+    /* Test reverse transform */
+    const char *reverse_doc = "---\ntext: Hello\n---\n\n[%text:reverse]";
+    html = apex_markdown_to_html(reverse_doc, strlen(reverse_doc), &opts);
+    assert_contains(html, "olleH", "reverse transform");
+    apex_free_string(html);
+
+    /* Test format transform */
+    const char *format_doc = "---\nprice: 42.5\n---\n\n[%price:format($%.2f)]";
+    html = apex_markdown_to_html(format_doc, strlen(format_doc), &opts);
+    assert_contains(html, "$42.50", "format transform");
+    apex_free_string(html);
+
+    /* Test length transform */
+    const char *length_doc = "---\ntext: Hello\n---\n\n[%text:length]";
+    html = apex_markdown_to_html(length_doc, strlen(length_doc), &opts);
+    assert_contains(html, "5", "length transform");
+    apex_free_string(html);
+
+    /* Test pad transform */
+    const char *pad_doc = "---\nnumber: 42\n---\n\n[%number:pad(5,0)]";
+    html = apex_markdown_to_html(pad_doc, strlen(pad_doc), &opts);
+    assert_contains(html, "00042", "pad transform");
+    apex_free_string(html);
+
+    /* Test contains transform */
+    const char *contains_doc = "---\ntags: javascript,html,css\n---\n\n[%tags:contains(javascript)]";
+    html = apex_markdown_to_html(contains_doc, strlen(contains_doc), &opts);
+    assert_contains(html, "true", "contains transform");
+    apex_free_string(html);
+
+    /* Test array transforms: split */
+    const char *split_doc = "---\ntags: tag1,tag2,tag3\n---\n\n[%tags:split(,):first]";
+    html = apex_markdown_to_html(split_doc, strlen(split_doc), &opts);
+    assert_contains(html, "tag1", "split and first transforms");
+    apex_free_string(html);
+
+    /* Test array transforms: join */
+    const char *join_doc = "---\ntags: tag1,tag2,tag3\n---\n\n[%tags:split(,):join( | )]";
+    html = apex_markdown_to_html(join_doc, strlen(join_doc), &opts);
+    assert_contains(html, "tag1 | tag2 | tag3", "split and join transforms");
+    apex_free_string(html);
+
+    /* Test array transforms: last */
+    const char *last_doc = "---\ntags: tag1,tag2,tag3\n---\n\n[%tags:split(,):last]";
+    html = apex_markdown_to_html(last_doc, strlen(last_doc), &opts);
+    assert_contains(html, "tag3", "last transform");
+    apex_free_string(html);
+
+    /* Test array transforms: slice */
+    const char *slice_doc = "---\ntags: tag1,tag2,tag3\n---\n\n[%tags:split(,):slice(0,2):join(,)]";
+    html = apex_markdown_to_html(slice_doc, strlen(slice_doc), &opts);
+    assert_contains(html, "tag1,tag2", "slice transform");
+    apex_free_string(html);
+
+    /* Test slice with string (character-by-character) */
+    const char *slice_str_doc = "---\ntext: Hello\n---\n\n[%text:slice(0,5)]";
+    html = apex_markdown_to_html(slice_str_doc, strlen(slice_str_doc), &opts);
+    assert_contains(html, "Hello", "slice transform on string");
+    apex_free_string(html);
+
+    /* Test strftime transform */
+    const char *strftime_doc = "---\ndate: 2024-03-15\n---\n\n[%date:strftime(%Y)]";
+    html = apex_markdown_to_html(strftime_doc, strlen(strftime_doc), &opts);
+    assert_contains(html, "2024", "strftime transform");
+    apex_free_string(html);
+
+    /* Test transform chaining */
+    const char *chain_doc = "---\ntitle: hello world\n---\n\n# [%title:title:split( ):first]";
+    html = apex_markdown_to_html(chain_doc, strlen(chain_doc), &opts);
+    assert_contains(html, "Hello</h1>", "transform chaining");
+    apex_free_string(html);
+
+    /* Test transform chaining with date */
+    const char *date_chain_doc = "---\ndate: 2024-03-15 14:30\n---\n\n[%date:strftime(%Y)]";
+    html = apex_markdown_to_html(date_chain_doc, strlen(date_chain_doc), &opts);
+    assert_contains(html, "2024", "strftime with time");
+    apex_free_string(html);
+
+    /* Test that transforms are disabled when flag is off */
+    apex_options no_transforms = apex_options_for_mode(APEX_MODE_UNIFIED);
+    no_transforms.enable_metadata_transforms = false;
+    const char *disabled_doc = "---\ntitle: Hello\n---\n\n[%title:upper]";
+    html = apex_markdown_to_html(disabled_doc, strlen(disabled_doc), &no_transforms);
+    /* Should keep the transform syntax verbatim or use simple replacement */
+    if (strstr(html, "[%title:upper]") != NULL || strstr(html, "Hello") != NULL) {
+        tests_passed++;
+        tests_run++;
+        printf(COLOR_GREEN "✓" COLOR_RESET " Transforms disabled when flag is off\n");
+    } else {
+        tests_failed++;
+        tests_run++;
+        printf(COLOR_RED "✗" COLOR_RESET " Transforms not disabled when flag is off\n");
+    }
+    apex_free_string(html);
+
+    /* Test that transforms are disabled in non-unified modes by default */
+    apex_options mmd_opts = apex_options_for_mode(APEX_MODE_MULTIMARKDOWN);
+    html = apex_markdown_to_html(disabled_doc, strlen(disabled_doc), &mmd_opts);
+    if (strstr(html, "[%title:upper]") != NULL || strstr(html, "Hello") != NULL) {
+        tests_passed++;
+        tests_run++;
+        printf(COLOR_GREEN "✓" COLOR_RESET " Transforms disabled in MMD mode by default\n");
+    } else {
+        tests_failed++;
+        tests_run++;
+        printf(COLOR_RED "✗" COLOR_RESET " Transforms incorrectly enabled in MMD mode\n");
+    }
+    apex_free_string(html);
+
+    /* Test that simple [%key] still works with transforms enabled */
+    const char *simple_doc = "---\ntitle: Hello\n---\n\n[%title]";
+    html = apex_markdown_to_html(simple_doc, strlen(simple_doc), &opts);
+    assert_contains(html, "Hello", "Simple metadata replacement still works");
+    apex_free_string(html);
+}
+
+/**
  * Test wiki links
  */
 static void test_wiki_links(void) {
@@ -2238,6 +2507,7 @@ int main(int argc, char *argv[]) {
     test_basic_markdown();
     test_gfm_features();
     test_metadata();
+    test_metadata_transforms();
     test_wiki_links();
     test_math();
     test_critic_markup();

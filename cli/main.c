@@ -37,6 +37,7 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "  --obfuscate-emails     Obfuscate email links/text using HTML entities\n");
     fprintf(stderr, "  --[no-]relaxed-tables  Enable relaxed table parsing (no separator rows required)\n");
     fprintf(stderr, "  --[no-]sup-sub         Enable MultiMarkdown-style superscript (^text^) and subscript (~text~) syntax\n");
+    fprintf(stderr, "  --[no-]transforms      Enable metadata variable transforms [%%key:transform] (enabled by default in unified mode)\n");
     fprintf(stderr, "  --[no-]unsafe          Allow raw HTML in output (default: true for unified/mmd/kramdown, false for commonmark/gfm)\n");
     fprintf(stderr, "  --[no-]wikilinks       Enable wiki link syntax [[PageName]] (disabled by default)\n");
     fprintf(stderr, "  --reject               Reject all Critic Markup changes (revert edits)\n");
@@ -250,6 +251,10 @@ int main(int argc, char *argv[]) {
             options.enable_wiki_links = true;
         } else if (strcmp(argv[i], "--no-wikilinks") == 0) {
             options.enable_wiki_links = false;
+        } else if (strcmp(argv[i], "--transforms") == 0) {
+            options.enable_metadata_transforms = true;
+        } else if (strcmp(argv[i], "--no-transforms") == 0) {
+            options.enable_metadata_transforms = false;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
             print_usage(argv[0]);

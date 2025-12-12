@@ -841,6 +841,7 @@ apex_options apex_options_default(void) {
     /* Metadata */
     opts.strip_metadata = true;
     opts.enable_metadata_variables = true;
+    opts.enable_metadata_transforms = true;  /* Enabled by default in unified mode */
 
     /* File inclusion */
     opts.enable_file_includes = true;
@@ -906,6 +907,7 @@ apex_options apex_options_for_mode(apex_mode_t mode) {
             opts.enable_marked_extensions = false;
             opts.enable_file_includes = false;
             opts.enable_metadata_variables = false;
+            opts.enable_metadata_transforms = false;
             opts.unsafe = false;  /* CommonMark mode: replace HTML comments with "raw HTML omitted" */
             opts.hardbreaks = false;
             opts.id_format = 0;  /* GFM format (default) */
@@ -931,6 +933,7 @@ apex_options apex_options_for_mode(apex_mode_t mode) {
             opts.enable_marked_extensions = false;
             opts.enable_file_includes = false;
             opts.enable_metadata_variables = false;
+            opts.enable_metadata_transforms = false;
             opts.unsafe = false;  /* GFM mode: replace HTML comments with "raw HTML omitted" */
             opts.hardbreaks = true;  /* GFM treats newlines as hard breaks */
             opts.id_format = 0;  /* GFM format */
@@ -957,6 +960,7 @@ apex_options apex_options_for_mode(apex_mode_t mode) {
             opts.enable_marked_extensions = false;
             opts.enable_file_includes = true;
             opts.enable_metadata_variables = true;
+            opts.enable_metadata_transforms = false;
             opts.hardbreaks = false;
             opts.id_format = 1;  /* MMD format */
             opts.allow_mixed_list_markers = true;  /* MultiMarkdown: inherit type from first item */
@@ -980,6 +984,7 @@ apex_options apex_options_for_mode(apex_mode_t mode) {
             opts.enable_marked_extensions = false;
             opts.enable_file_includes = false;
             opts.enable_metadata_variables = false;
+            opts.enable_metadata_transforms = false;
             opts.hardbreaks = false;
             opts.id_format = 2;  /* Kramdown format */
             opts.relaxed_tables = true;  /* Kramdown supports relaxed tables */
@@ -1182,7 +1187,7 @@ char *apex_markdown_to_html(const char *markdown, size_t len, const apex_options
      */
     char *metadata_replaced = NULL;
     if (metadata && options->enable_metadata_variables) {
-        metadata_replaced = apex_metadata_replace_variables(text_ptr, metadata);
+        metadata_replaced = apex_metadata_replace_variables(text_ptr, metadata, options);
         if (metadata_replaced) {
             text_ptr = metadata_replaced;
         }
@@ -1404,7 +1409,7 @@ char *apex_markdown_to_html(const char *markdown, size_t len, const apex_options
      * Note: Most replacements happen in preprocessing, but this handles edge cases in HTML
      */
     if (metadata && options->enable_metadata_variables && html) {
-        char *replaced = apex_metadata_replace_variables(html, metadata);
+        char *replaced = apex_metadata_replace_variables(html, metadata, options);
         if (replaced && replaced != html) {
             free(html);
             html = replaced;

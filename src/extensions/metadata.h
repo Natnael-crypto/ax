@@ -12,6 +12,7 @@
 
 #include "cmark-gfm.h"
 #include "cmark-gfm-extension_api.h"
+#include "../../include/apex/apex.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -61,8 +62,9 @@ const char *apex_metadata_get(apex_metadata_item *metadata, const char *key);
 
 /**
  * Replace [%key] patterns in text with metadata values
+ * If options->enable_metadata_transforms is true, supports [%key:transform:transform2] syntax
  */
-char *apex_metadata_replace_variables(const char *text, apex_metadata_item *metadata);
+char *apex_metadata_replace_variables(const char *text, apex_metadata_item *metadata, const apex_options *options);
 
 #ifdef __cplusplus
 }

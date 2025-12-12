@@ -51,6 +51,9 @@ If no file is specified, **apex** reads from stdin.
 **--enable-includes**
 :   Enable file inclusion.
 
+**--[no-]transforms**
+:   Enable metadata variable transforms (`[%key:transform]` syntax). Enabled by default in unified mode, disabled in other modes.
+
 **--hardbreaks**
 :   Treat newlines as hard breaks.
 
@@ -177,6 +180,7 @@ Apex supports a wide range of Markdown extensions:
 - **Definition Lists**: MultiMarkdown-style definition lists
 - **Task Lists**: GFM-style task lists
 - **Metadata**: YAML front matter, MultiMarkdown metadata, Pandoc title blocks
+- **Metadata Transforms**: Transform metadata values with `[%key:transform]` syntax (case conversion, string manipulation, regex replacement, date formatting, etc.)
 - **Header IDs**: Automatic or manual header IDs with multiple format options
 - **Relaxed Tables**: Support for tables without separator rows (Kramdown-style)
 - **Superscript/Subscript**: MultiMarkdown-style superscript (`^text`) and subscript (`~text~` within words) syntax. Subscript uses paired tildes within word boundaries (e.g., `H~2~O`), while tildes at word boundaries create underline
