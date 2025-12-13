@@ -61,6 +61,7 @@ set(APEX_LIB_SOURCES
     src/extensions/sup_sub.c
     src/extensions/header_ids.c
     src/extensions/relaxed_tables.c
+    src/extensions/citations.c
     src/pretty_html.c
 )
 

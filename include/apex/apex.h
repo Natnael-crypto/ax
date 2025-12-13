@@ -97,6 +97,15 @@ typedef struct {
 
     /* Image embedding options */
     bool embed_images;  /* Embed local images as base64 data URLs */
+
+    /* Citation options */
+    bool enable_citations;  /* Enable citation processing */
+    char **bibliography_files;  /* NULL-terminated array of bibliography file paths */
+    const char *csl_file;  /* CSL style file path */
+    bool suppress_bibliography;  /* Suppress bibliography output */
+    bool link_citations;  /* Link citations to bibliography entries */
+    bool show_tooltips;  /* Show tooltips on citations */
+    const char *nocite;  /* Comma-separated citation keys to include without citing, or "*" for all */
 } apex_options;
 
 /**

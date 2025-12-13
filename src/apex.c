@@ -33,6 +33,7 @@
 #include "extensions/sup_sub.h"
 #include "extensions/header_ids.h"
 #include "extensions/relaxed_tables.h"
+#include "extensions/citations.h"
 
 /* Custom renderer */
 #include "html_renderer.h"
@@ -599,6 +600,27 @@ static char *apex_preprocess_autolinks(const char *text, const apex_options *opt
             }
         }
 
+        /* Skip HTML comments (like citation placeholders <!--CITE:key-->) */
+        if (*r == '<' && r[1] == '!' && r[2] == '-' && r[3] == '-') {
+            /* Find end of comment --> */
+            const char *comment_end = strstr(r, "-->");
+            if (comment_end) {
+                size_t comment_len = (comment_end + 3) - r;
+                if ((size_t)(w - out) + comment_len + 1 > cap) {
+                    size_t used = (size_t)(w - out);
+                    cap = (used + comment_len + 1) * 2;
+                    char *new_out = realloc(out, cap);
+                    if (!new_out) { free(out); return NULL; }
+                    out = new_out;
+                    w = out + used;
+                }
+                memcpy(w, r, comment_len);
+                w += comment_len;
+                r = comment_end + 3;
+                continue;
+            }
+        }
+
         /* Handle bare URL or mailto/email */
         bool is_url_start = false;
         bool is_email_start = false;
@@ -609,7 +631,9 @@ static char *apex_preprocess_autolinks(const char *text, const apex_options *opt
                 is_url_start = true;
             }
             /* Check for email address: must start at word boundary and have @ in current token */
-            else if (r == text || isspace((unsigned char)r[-1]) || r[-1] == '(' || r[-1] == '[') {
+            /* Skip if @ is part of a citation placeholder (<!--CITE:...) or citation syntax [@ */
+            else if ((r == text || isspace((unsigned char)r[-1]) || r[-1] == '(' || r[-1] == '[') &&
+                     !(r > text && r[-1] == '[' && *r == '@')) {  /* Skip [@ which is citation syntax */
                 /* Scan forward to find end of current token */
                 const char *token_end = r;
                 while (*token_end && !isspace((unsigned char)*token_end) && *token_end != '<' && *token_end != '>') {
@@ -621,7 +645,9 @@ static char *apex_preprocess_autolinks(const char *text, const apex_options *opt
                     at_pos++;
                 }
                 /* If @ found within token, and it's not at start/end, it might be an email */
-                if (at_pos < token_end && at_pos > r && (at_pos + 1) < token_end) {
+                /* Also skip if @ is immediately after [ (citation syntax) */
+                if (at_pos < token_end && at_pos > r && (at_pos + 1) < token_end &&
+                    !(at_pos > text && at_pos[-1] == '[')) {  /* Not [@ */
                     /* Basic validation: has chars before @ and after @ */
                     is_email_start = true;
                 }
@@ -1208,6 +1234,15 @@ apex_options apex_options_default(void) {
     /* Image embedding options */
     opts.embed_images = false;  /* Default: disabled */
 
+    /* Citation options */
+    opts.enable_citations = false;  /* Disabled by default - enable with --bibliography */
+    opts.bibliography_files = NULL;
+    opts.csl_file = NULL;
+    opts.suppress_bibliography = false;
+    opts.link_citations = false;
+    opts.show_tooltips = false;
+    opts.nocite = NULL;
+
     return opts;
 }
 
@@ -1243,6 +1278,7 @@ apex_options apex_options_for_mode(apex_mode_t mode) {
             opts.allow_alpha_lists = false;  /* CommonMark: no alpha lists */
             opts.enable_sup_sub = false;  /* CommonMark: no sup/sub */
             opts.enable_autolink = false;  /* CommonMark: no autolinks */
+            opts.enable_citations = false;  /* CommonMark: no citations */
             break;
 
         case APEX_MODE_GFM:
@@ -1269,6 +1305,7 @@ apex_options apex_options_for_mode(apex_mode_t mode) {
             opts.allow_alpha_lists = false;  /* GFM: no alpha lists */
             opts.enable_sup_sub = false;  /* GFM: no sup/sub */
             opts.enable_autolink = true;  /* GFM: autolinks enabled */
+            opts.enable_citations = false;  /* GFM: no citations */
             break;
 
         case APEX_MODE_MULTIMARKDOWN:
@@ -1292,6 +1329,7 @@ apex_options apex_options_for_mode(apex_mode_t mode) {
             opts.id_format = 1;  /* MMD format */
             opts.allow_mixed_list_markers = true;  /* MultiMarkdown: inherit type from first item */
             opts.allow_alpha_lists = false;  /* MultiMarkdown: no alpha lists */
+            opts.enable_citations = true;  /* MultiMarkdown: citations enabled (if bibliography provided) */
             opts.enable_sup_sub = true;  /* MultiMarkdown: support sup/sub */
             opts.enable_autolink = true;  /* MultiMarkdown: autolinks enabled */
             break;
@@ -1319,6 +1357,7 @@ apex_options apex_options_for_mode(apex_mode_t mode) {
             opts.allow_alpha_lists = false;  /* Kramdown: no alpha lists */
             opts.enable_sup_sub = false;  /* Kramdown: no sup/sub */
             opts.enable_autolink = true;  /* Kramdown: autolinks enabled */
+            opts.enable_citations = false;  /* Kramdown: no citations (different system) */
             break;
 
         case APEX_MODE_UNIFIED:
@@ -1332,6 +1371,7 @@ apex_options apex_options_for_mode(apex_mode_t mode) {
             opts.allow_alpha_lists = true;  /* Unified: support alpha lists */
             opts.enable_sup_sub = true;  /* Unified: support sup/sub (default: true) */
             opts.unsafe = true;  /* Unified mode: allow raw HTML by default */
+            opts.enable_citations = true;  /* Unified: citations enabled (if bibliography provided) */
             break;
     }
 
@@ -1476,12 +1516,17 @@ char *apex_markdown_to_html(const char *markdown, size_t len, const apex_options
         return empty;
     }
 
-    /* Use default options if none provided */
+    /* Use default options if none provided, and create a mutable copy */
     apex_options default_opts;
+    apex_options local_opts;
     if (!options) {
         default_opts = apex_options_default();
-        options = &default_opts;
+        local_opts = default_opts;
+    } else {
+        local_opts = *options;  /* Make a mutable copy */
     }
+    /* Use local_opts for rest of function (mutable) - shadow the const parameter */
+    #define options (&local_opts)
 
     /* Extract metadata if enabled (preprocessing step) */
     char *working_text = malloc(len + 1);
@@ -1510,6 +1555,18 @@ char *apex_markdown_to_html(const char *markdown, size_t len, const apex_options
         abbreviations = apex_extract_abbreviations(&text_ptr);
     }
 
+    /* Check metadata for bibliography and enable citations if found */
+    if (metadata && !local_opts.enable_citations) {
+        const char *bib_value = apex_metadata_get(metadata, "bibliography");
+        if (bib_value) {
+            local_opts.enable_citations = true;
+        }
+        const char *csl_value = apex_metadata_get(metadata, "csl");
+        if (csl_value) {
+            local_opts.enable_citations = true;
+        }
+    }
+
     /* Apply metadata variable replacement BEFORE autolinking
      * This ensures replaced URLs get autolinked
      */
@@ -1521,8 +1578,101 @@ char *apex_markdown_to_html(const char *markdown, size_t len, const apex_options
         }
     }
 
-    /* Preprocess autolinks FIRST to convert <https://...> to [https://...](https://...)
-     * This must happen before other processors that might treat angle brackets as HTML
+    /* Load bibliography files if provided (before processing citations)
+     * Check both CLI bibliography files and metadata bibliography
+     * Only load bibliography if files are actually specified - this avoids
+     * unnecessary file I/O and parsing when citations aren't being used
+     */
+    apex_bibliography_registry *bibliography = NULL;
+
+    /* Load from CLI bibliography files if specified */
+    if (options->bibliography_files) {
+        bibliography = apex_load_bibliography((const char **)options->bibliography_files, options->base_directory);
+    }
+
+    /* Also check metadata for bibliography (merge with CLI bibliography if both exist) */
+    if (metadata) {
+        const char *bib_value = apex_metadata_get(metadata, "bibliography");
+        if (bib_value) {
+            /* Load bibliography from metadata */
+            char *resolved_path = NULL;
+            if (options->base_directory) {
+                size_t base_len = strlen(options->base_directory);
+                size_t bib_len = strlen(bib_value);
+                resolved_path = malloc(base_len + bib_len + 2);
+                if (resolved_path) {
+                    strcpy(resolved_path, options->base_directory);
+                    if (resolved_path[base_len - 1] != '/') {
+                        resolved_path[base_len] = '/';
+                        base_len++;
+                    }
+                    strcpy(resolved_path + base_len, bib_value);
+                }
+            } else {
+                resolved_path = strdup(bib_value);
+            }
+
+            if (resolved_path) {
+                apex_bibliography_registry *meta_bib = apex_load_bibliography_file(resolved_path);
+                if (meta_bib) {
+                    if (bibliography) {
+                        /* Merge with existing bibliography */
+                        apex_bibliography_entry *entry = meta_bib->entries;
+                        while (entry) {
+                            apex_bibliography_entry *next = entry->next;
+                            if (!apex_find_bibliography_entry(bibliography, entry->id)) {
+                                entry->next = bibliography->entries;
+                                bibliography->entries = entry;
+                                bibliography->count++;
+                            } else {
+                                apex_bibliography_entry_free(entry);
+                            }
+                            entry = next;
+                        }
+                        free(meta_bib);
+                    } else {
+                        /* Use metadata bibliography as the main bibliography */
+                        bibliography = meta_bib;
+                    }
+                }
+                free(resolved_path);
+            }
+        }
+    }
+
+    /* Process citations BEFORE autolinking to prevent @ symbols from being converted to mailto links
+     * Citations like [@key] need to be processed before autolinking sees the @ symbol
+     * Only process citations if bibliography is actually loaded or citations are explicitly enabled
+     */
+    apex_citation_registry citation_registry = {0};
+    citation_registry.bibliography = bibliography;
+    char *citations_processed = NULL;
+
+    /* Check if we should process citations: bibliography loaded, CLI files specified, CSL specified, or metadata bibliography */
+    bool should_process_citations = false;
+    if (bibliography) {
+        should_process_citations = true;
+    } else if (options->bibliography_files) {
+        should_process_citations = true;
+    } else if (options->csl_file) {
+        should_process_citations = true;
+    } else if (metadata) {
+        const char *bib_value = apex_metadata_get(metadata, "bibliography");
+        const char *csl_value = apex_metadata_get(metadata, "csl");
+        if (bib_value || csl_value) {
+            should_process_citations = true;
+        }
+    }
+
+    if (options->enable_citations && should_process_citations) {
+        citations_processed = apex_process_citations(text_ptr, &citation_registry, options);
+        if (citations_processed) {
+            text_ptr = citations_processed;
+        }
+    }
+
+    /* Preprocess autolinks to convert <https://...> to [https://...](https://...)
+     * This must happen after citation processing so @ symbols in citations aren't autolinked
      * Note: Even with autolink extension enabled, preprocessing ensures compatibility
      */
     char *autolinks_processed = NULL;
@@ -1783,6 +1933,41 @@ char *apex_markdown_to_html(const char *markdown, size_t len, const apex_options
         }
     }
 
+    /* Render citations in HTML if enabled and bibliography is available */
+    bool should_render_citations = false;
+    if (citation_registry.bibliography) {
+        should_render_citations = true;
+    } else if (options->bibliography_files) {
+        should_render_citations = true;
+    } else if (options->csl_file) {
+        should_render_citations = true;
+    } else if (metadata) {
+        const char *bib_value = apex_metadata_get(metadata, "bibliography");
+        const char *csl_value = apex_metadata_get(metadata, "csl");
+        if (bib_value || csl_value) {
+            should_render_citations = true;
+        }
+    }
+
+    if (options->enable_citations && html && should_render_citations) {
+        if (citation_registry.count > 0) {
+            char *with_citations = apex_render_citations(html, &citation_registry, options);
+            if (with_citations) {
+                free(html);
+                html = with_citations;
+            }
+        }
+
+        /* Insert bibliography at marker or end of document (even if no citations, if bibliography loaded) */
+        if (html && !options->suppress_bibliography && citation_registry.bibliography) {
+            char *with_bibliography = apex_insert_bibliography(html, &citation_registry, options);
+            if (with_bibliography) {
+                free(html);
+                html = with_bibliography;
+            }
+        }
+    }
+
     /* Clean up HTML tag spacing (compress multiple spaces, remove spaces before >) */
     if (html) {
         char *cleaned = apex_clean_html_tag_spacing(html);
@@ -1843,6 +2028,10 @@ char *apex_markdown_to_html(const char *markdown, size_t len, const apex_options
     apex_free_metadata(metadata);
     apex_free_abbreviations(abbreviations);
     apex_free_alds(alds);
+    apex_free_citation_registry(&citation_registry);
+
+    /* Undefine the macro */
+    #undef options
 
     /* Wrap in complete HTML document if requested */
     if (options->standalone && html) {

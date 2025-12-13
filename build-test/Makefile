@@ -488,6 +488,36 @@ src/extensions/callouts.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/apex_framework.dir/build.make CMakeFiles/apex_framework.dir/src/extensions/callouts.c.s
 .PHONY : src/extensions/callouts.c.s
 
+src/extensions/citations.o: src/extensions/citations.c.o
+.PHONY : src/extensions/citations.o
+
+# target to build an object file
+src/extensions/citations.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/apex.dir/build.make CMakeFiles/apex.dir/src/extensions/citations.c.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/apex_static.dir/build.make CMakeFiles/apex_static.dir/src/extensions/citations.c.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/apex_framework.dir/build.make CMakeFiles/apex_framework.dir/src/extensions/citations.c.o
+.PHONY : src/extensions/citations.c.o
+
+src/extensions/citations.i: src/extensions/citations.c.i
+.PHONY : src/extensions/citations.i
+
+# target to preprocess a source file
+src/extensions/citations.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/apex.dir/build.make CMakeFiles/apex.dir/src/extensions/citations.c.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/apex_static.dir/build.make CMakeFiles/apex_static.dir/src/extensions/citations.c.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/apex_framework.dir/build.make CMakeFiles/apex_framework.dir/src/extensions/citations.c.i
+.PHONY : src/extensions/citations.c.i
+
+src/extensions/citations.s: src/extensions/citations.c.s
+.PHONY : src/extensions/citations.s
+
+# target to generate assembly for a file
+src/extensions/citations.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/apex.dir/build.make CMakeFiles/apex.dir/src/extensions/citations.c.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/apex_static.dir/build.make CMakeFiles/apex_static.dir/src/extensions/citations.c.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/apex_framework.dir/build.make CMakeFiles/apex_framework.dir/src/extensions/citations.c.s
+.PHONY : src/extensions/citations.c.s
+
 src/extensions/critic.o: src/extensions/critic.c.o
 .PHONY : src/extensions/critic.o
 
@@ -1124,6 +1154,9 @@ help:
 	@echo "... src/extensions/callouts.o"
 	@echo "... src/extensions/callouts.i"
 	@echo "... src/extensions/callouts.s"
+	@echo "... src/extensions/citations.o"
+	@echo "... src/extensions/citations.i"
+	@echo "... src/extensions/citations.s"
 	@echo "... src/extensions/critic.o"
 	@echo "... src/extensions/critic.i"
 	@echo "... src/extensions/critic.s"

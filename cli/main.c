@@ -46,6 +46,11 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "  --[no-]wikilinks       Enable wiki link syntax [[PageName]] (disabled by default)\n");
     fprintf(stderr, "  --embed-images         Embed local images as base64 data URLs in HTML output\n");
     fprintf(stderr, "  --base-dir DIR         Base directory for resolving relative paths (for images, includes, wiki links)\n");
+    fprintf(stderr, "  --bibliography FILE     Bibliography file (BibTeX, CSL JSON, or CSL YAML) - can be used multiple times\n");
+    fprintf(stderr, "  --csl FILE              Citation style file (CSL format)\n");
+    fprintf(stderr, "  --no-bibliography       Suppress bibliography output\n");
+    fprintf(stderr, "  --link-citations       Link citations to bibliography entries\n");
+    fprintf(stderr, "  --show-tooltips         Show tooltips on citations\n");
     fprintf(stderr, "  --reject               Reject all Critic Markup changes (revert edits)\n");
     fprintf(stderr, "  -s, --standalone       Generate complete HTML document (with <html>, <head>, <body>)\n");
     fprintf(stderr, "  --style FILE           Link to CSS file in document head (requires --standalone)\n");
@@ -142,6 +147,11 @@ int main(int argc, char *argv[]) {
     const char *meta_file = NULL;
     apex_metadata_item *cmdline_metadata = NULL;
     char *allocated_base_dir = NULL;  /* Track if we allocated base_directory */
+
+    /* Bibliography files (NULL-terminated array) */
+    char **bibliography_files = NULL;
+    size_t bibliography_count = 0;
+    size_t bibliography_capacity = 4;
 
     /* Parse command-line arguments */
     for (int i = 1; i < argc; i++) {
@@ -272,6 +282,42 @@ int main(int argc, char *argv[]) {
                 return 1;
             }
             options.base_directory = argv[i];
+        } else if (strcmp(argv[i], "--bibliography") == 0) {
+            if (++i >= argc) {
+                fprintf(stderr, "Error: --bibliography requires an argument\n");
+                return 1;
+            }
+            /* Allocate or reallocate bibliography files array */
+            if (!bibliography_files) {
+                bibliography_files = malloc(bibliography_capacity * sizeof(char*));
+                if (!bibliography_files) {
+                    fprintf(stderr, "Error: Memory allocation failed\n");
+                    return 1;
+                }
+            } else if (bibliography_count >= bibliography_capacity) {
+                bibliography_capacity *= 2;
+                char **new_files = realloc(bibliography_files, bibliography_capacity * sizeof(char*));
+                if (!new_files) {
+                    fprintf(stderr, "Error: Memory allocation failed\n");
+                    return 1;
+                }
+                bibliography_files = new_files;
+            }
+            bibliography_files[bibliography_count++] = argv[i];
+            options.enable_citations = true;  /* Enable citations when bibliography is provided */
+        } else if (strcmp(argv[i], "--csl") == 0) {
+            if (++i >= argc) {
+                fprintf(stderr, "Error: --csl requires an argument\n");
+                return 1;
+            }
+            options.csl_file = argv[i];
+            options.enable_citations = true;  /* Enable citations when CSL is provided */
+        } else if (strcmp(argv[i], "--no-bibliography") == 0) {
+            options.suppress_bibliography = true;
+        } else if (strcmp(argv[i], "--link-citations") == 0) {
+            options.link_citations = true;
+        } else if (strcmp(argv[i], "--show-tooltips") == 0) {
+            options.show_tooltips = true;
         } else if (strcmp(argv[i], "--meta-file") == 0) {
             if (++i >= argc) {
                 fprintf(stderr, "Error: --meta-file requires an argument\n");
@@ -470,6 +516,43 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    /* Set bibliography files in options (NULL-terminated array) */
+    if (bibliography_count > 0) {
+        bibliography_files = realloc(bibliography_files, (bibliography_count + 1) * sizeof(char*));
+        if (bibliography_files) {
+            bibliography_files[bibliography_count] = NULL;  /* NULL terminator */
+            /* Note: We cast away const here because bibliography_files are from argv */
+            options.bibliography_files = (const char **)(void *)bibliography_files;
+        }
+    }
+
+    /* Check metadata for bibliography field and enable citations if found */
+    /* Note: Bibliography file loading from metadata will be handled in citations extension */
+    if (merged_metadata) {
+        const char *bib_value = apex_metadata_get(merged_metadata, "bibliography");
+        if (bib_value) {
+            options.enable_citations = true;
+            /* If no CLI bibliography files, metadata bibliography will be handled in processing */
+        }
+        const char *csl_value = apex_metadata_get(merged_metadata, "csl");
+        if (csl_value && !options.csl_file) {
+            options.csl_file = csl_value;
+            options.enable_citations = true;
+        }
+        const char *suppress_bib = apex_metadata_get(merged_metadata, "suppress-bibliography");
+        if (suppress_bib && (strcasecmp(suppress_bib, "true") == 0 || strcasecmp(suppress_bib, "yes") == 0 || strcmp(suppress_bib, "1") == 0)) {
+            options.suppress_bibliography = true;
+        }
+        const char *link_cites = apex_metadata_get(merged_metadata, "link-citations");
+        if (link_cites && (strcasecmp(link_cites, "true") == 0 || strcasecmp(link_cites, "yes") == 0 || strcmp(link_cites, "1") == 0)) {
+            options.link_citations = true;
+        }
+        const char *show_tips = apex_metadata_get(merged_metadata, "show-tooltips");
+        if (show_tips && (strcasecmp(show_tips, "true") == 0 || strcasecmp(show_tips, "yes") == 0 || strcmp(show_tips, "1") == 0)) {
+            options.show_tooltips = true;
+        }
+    }
+
     /* Use enhanced markdown if we created it, otherwise use original */
     char *final_markdown = enhanced_markdown ? enhanced_markdown : markdown;
     size_t final_len = enhanced_markdown ? enhanced_len : input_len;
@@ -505,6 +588,11 @@ int main(int argc, char *argv[]) {
     }
 
     apex_free_string(html);
+
+    /* Free bibliography files array */
+    if (bibliography_files) {
+        free(bibliography_files);
+    }
 
     /* Free base_directory if we allocated it */
     if (allocated_base_dir) {

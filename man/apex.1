@@ -50,6 +50,22 @@ Reject all Critic Markup changes (revert edits).
 \f[B]\[en]enable\-includes\f[R]
 Enable file inclusion.
 .TP
+\f[B]\[en]meta\-file\f[R] \f[I]FILE\f[R]
+Load metadata from an external file.
+Auto\-detects format: YAML (starts with \f[CR]\-\-\-\f[R]),
+MultiMarkdown (key: value pairs), or Pandoc (starts with \f[CR]%\f[R]).
+Metadata from the file is merged with document metadata, with document
+metadata taking precedence.
+.TP
+\f[B]\[en]meta\f[R] \f[I]KEY=VALUE\f[R]
+Set a metadata key\-value pair.
+Can be used multiple times.
+Supports comma\-separated pairs (e.g.,
+\f[CR]\-\-meta KEY1=value1,KEY2=value2\f[R]).
+Values can be quoted to include spaces and special characters.
+Command\-line metadata takes precedence over both file and document
+metadata.
+.TP
 \f[B]\[en]hardbreaks\f[R]
 Treat newlines as hard breaks.
 .TP
@@ -107,6 +123,30 @@ disabled in CommonMark mode.
 .TP
 \f[B]\[en]obfuscate\-emails\f[R]
 Obfuscate email links and text using HTML entities (hex\-encoded).
+.SS Image Embedding
+.TP
+\f[B]\[en]embed\-images\f[R]
+Embed local images as base64 data URLs in HTML output.
+Only local images (file paths) are embedded; remote images (http://,
+https://) are not processed.
+Images are read from the filesystem and encoded as base64 data URLs
+(e.g., \f[CR]data:image/png;base64,...\f[R]).
+Relative paths are resolved using the base directory (see
+\f[B]\[en]base\-dir\f[R]).
+.SS Path Resolution
+.TP
+\f[B]\[en]base\-dir\f[R] \f[I]DIR\f[R]
+Base directory for resolving relative paths.
+Used for: \- Image embedding (with \f[B]\[en]embed\-images\f[R]) \- File
+includes/transclusions \- Relative path resolution when reading from
+stdin or when the working directory differs from the document location
+.RS
+.PP
+If not specified and reading from a file, the base directory is
+automatically set to the input file\[cq]s directory.
+When reading from stdin, this flag must be used to resolve relative
+paths.
+.RE
 .SS Superscript/Subscript
 .TP
 \f[B]\[en]sup\-sub\f[R], \f[B]\[en]no\-sup\-sub\f[R]
@@ -207,12 +247,15 @@ Apex supports a wide range of Markdown extensions:
 \f[B]Smart Typography\f[R]: Smart quotes, dashes, ellipsis
 .IP \[bu] 2
 \f[B]Definition Lists\f[R]: MultiMarkdown\-style definition lists
-(including support inside blockquotes and nested blockquotes)
 .IP \[bu] 2
 \f[B]Task Lists\f[R]: GFM\-style task lists
 .IP \[bu] 2
 \f[B]Metadata\f[R]: YAML front matter, MultiMarkdown metadata, Pandoc
 title blocks
+.IP \[bu] 2
+\f[B]Metadata Transforms\f[R]: Transform metadata values with
+\f[CR][%key:transform]\f[R] syntax (case conversion, string
+manipulation, regex replacement, date formatting, etc.)
 .IP \[bu] 2
 \f[B]Header IDs\f[R]: Automatic or manual header IDs with multiple
 format options
@@ -226,6 +269,9 @@ words) syntax.
 Subscript uses paired tildes within word boundaries (e.g.,
 \f[CR]H\[ti]2\[ti]O\f[R]), while tildes at word boundaries create
 underline
+.IP \[bu] 2
+\f[B]Image Embedding\f[R]: Embed local images as base64 data URLs with
+\f[CR]\-\-embed\-images\f[R] flag
 .SH SEE ALSO
 For complete documentation, see the \c
 .UR https://github.com/ttscoff/apex/wiki
