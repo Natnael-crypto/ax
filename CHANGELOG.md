@@ -2,6 +2,31 @@
 
 All notable changes to Apex will be documented in this file.
 
+## [0.1.24] - 2025-12-13
+
+### New
+
+- Add citation processing with support for Pandoc, MultiMarkdown, and mmark syntaxes
+- Add bibliography loading from BibTeX, CSL JSON, and CSL YAML formats
+- Add --bibliography CLI option to specify bibliography files (can be used multiple times)
+- Add --csl CLI option to specify citation style file
+- Add --no-bibliography CLI option to suppress bibliography output
+- Add --link-citations CLI option to link citations to bibliography entries
+- Add --show-tooltips CLI option for citation tooltips
+- Add bibliography generation and insertion at <!-- REFERENCES --> marker
+- Add support for bibliography specified in document metadata
+
+### Improved
+
+- Only process citations when bibliography is actually provided for better performance
+
+### Fixed
+
+- Raw HTML tags and comments are now preserved in definition lists by default in unified mode. Previously, HTML content in definition list definitions was being replaced with "raw HTML omitted" even when using --unsafe or in unified mode.
+- Unified mode now explicitly sets unsafe=true by default to ensure raw HTML is allowed.
+- Prevent autolinking of @ symbols in citation syntax (e.g., [@key])
+- Handle HTML comments in autolinker to preserve citation placeholders
+
 ## [0.1.23] - 2025-12-12
 
 ### Changed
@@ -266,6 +291,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Based on [cmark-gfm](https://github.com/github/cmark-gfm) by GitHub
 - Developed for [Marked](https://marked2app.com) by Brett Terpstra
 
+[0.1.24]: https://github.com/ttscoff/apex/releases/tag/v0.1.24
 [0.1.23]: https://github.com/ttscoff/apex/releases/tag/v0.1.23
 [0.1.20]: https://github.com/ttscoff/apex/releases/tag/v0.1.20
 [0.1.19]: https://github.com/ttscoff/apex/releases/tag/v0.1.19

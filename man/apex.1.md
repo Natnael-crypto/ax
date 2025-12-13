@@ -130,6 +130,30 @@ If no file is specified, **apex** reads from stdin.
 **--sup-sub**, **--no-sup-sub**
 :   Enable MultiMarkdown-style superscript and subscript syntax. The `^` character creates superscript for the text immediately following it (stops at space or punctuation). The `~` character creates subscript when used within a word/identifier (e.g., `H~2~O` creates H₂O). When tildes are at word boundaries (e.g., `~text~`), they create underline instead. Default: enabled in unified and MultiMarkdown modes.
 
+## Citations and Bibliography
+
+**--bibliography** *FILE*
+:   Bibliography file in BibTeX, CSL JSON, or CSL YAML format. Can be specified multiple times to load multiple bibliography files. Citations are automatically enabled when this option is used. Bibliography can also be specified in document metadata.
+
+**--csl** *FILE*
+:   Citation Style Language (CSL) file for formatting citations and bibliography. Citations are automatically enabled when this option is used. CSL file can also be specified in document metadata.
+
+**--no-bibliography**
+:   Suppress bibliography output even when citations are present.
+
+**--link-citations**
+:   Link citations to their corresponding bibliography entries. Citations will include `href` attributes pointing to the bibliography entry.
+
+**--show-tooltips**
+:   Show tooltips on citations when hovering (requires CSS support).
+
+Citation syntax is supported in MultiMarkdown and unified modes:
+- Pandoc: `[@key]`, `[@key1; @key2]`, `@key`
+- MultiMarkdown: `[#key]`
+- mmark: `[@RFC1234]`
+
+Bibliography is inserted at the `<!-- REFERENCES -->` marker or appended to the end of the document if no marker is found.
+
 ## General Options
 
 **-h**, **--help**
@@ -159,6 +183,16 @@ Pretty-print HTML output:
 Use GFM mode:
 
     apex input.md --mode gfm
+
+Process document with citations and bibliography:
+
+    apex document.md --bibliography refs.bib
+
+Use metadata to specify bibliography:
+
+    apex document.md
+
+(With bibliography specified in YAML front matter)
 
 Use Kramdown mode with relaxed tables:
 

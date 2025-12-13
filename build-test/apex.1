@@ -158,6 +158,38 @@ word/identifier (e.g., \f[CR]H\[ti]2\[ti]O\f[R] creates H₂O).
 When tildes are at word boundaries (e.g., \f[CR]\[ti]text\[ti]\f[R]),
 they create underline instead.
 Default: enabled in unified and MultiMarkdown modes.
+.SS Citations and Bibliography
+.TP
+\f[B]\[en]bibliography\f[R] \f[I]FILE\f[R]
+Bibliography file in BibTeX, CSL JSON, or CSL YAML format.
+Can be specified multiple times to load multiple bibliography files.
+Citations are automatically enabled when this option is used.
+Bibliography can also be specified in document metadata.
+.TP
+\f[B]\[en]csl\f[R] \f[I]FILE\f[R]
+Citation Style Language (CSL) file for formatting citations and
+bibliography.
+Citations are automatically enabled when this option is used.
+CSL file can also be specified in document metadata.
+.TP
+\f[B]\[en]no\-bibliography\f[R]
+Suppress bibliography output even when citations are present.
+.TP
+\f[B]\[en]link\-citations\f[R]
+Link citations to their corresponding bibliography entries.
+Citations will include \f[CR]href\f[R] attributes pointing to the
+bibliography entry.
+.TP
+\f[B]\[en]show\-tooltips\f[R]
+Show tooltips on citations when hovering (requires CSS support).
+.PP
+Citation syntax is supported in MultiMarkdown and unified modes: \-
+Pandoc: \f[CR][\[at]key]\f[R], \f[CR][\[at]key1; \[at]key2]\f[R],
+\f[CR]\[at]key\f[R] \- MultiMarkdown: \f[CR][#key]\f[R] \- mmark:
+\f[CR][\[at]RFC1234]\f[R]
+.PP
+Bibliography is inserted at the \f[CR]<!\-\- REFERENCES \-\->\f[R]
+marker or appended to the end of the document if no marker is found.
 .SS General Options
 .TP
 \f[B]\-h\f[R], \f[B]\[en]help\f[R]
@@ -195,6 +227,20 @@ Use GFM mode:
 .EX
 apex input.md \-\-mode gfm
 .EE
+.PP
+Process document with citations and bibliography:
+.IP
+.EX
+apex document.md \-\-bibliography refs.bib
+.EE
+.PP
+Use metadata to specify bibliography:
+.IP
+.EX
+apex document.md
+.EE
+.PP
+(With bibliography specified in YAML front matter)
 .PP
 Use Kramdown mode with relaxed tables:
 .IP

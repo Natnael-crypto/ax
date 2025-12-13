@@ -37,6 +37,17 @@ Apex is a unified Markdown processor that combines the best features from Common
 - **Inline Attribute Lists (IAL)**: Kramdown-style attributes `{: #id .class}`
 - **Special markers**: Page breaks (`<!--BREAK-->`), autoscroll pauses (`<!--PAUSE:N-->`), end-of-block markers
 
+### Citations and Bibliography
+
+- **Multiple citation syntaxes**: Pandoc (`[@key]`), MultiMarkdown (`[#key]`), and mmark (`[@RFC1234]`) styles
+- **Bibliography formats**: Support for BibTeX (`.bib`), CSL JSON (`.json`), and CSL YAML (`.yml`, `.yaml`) formats
+- **Automatic bibliography generation**: Bibliography automatically generated from cited entries
+- **Citation linking**: Option to link citations to bibliography entries
+- **Metadata support**: Bibliography can be specified in document metadata or via command-line flags
+- **Multiple bibliography files**: Support for loading and merging multiple bibliography files
+- **CSL style support**: Citation Style Language (CSL) files for custom citation formatting
+- **Mode support**: Citations enabled in MultiMarkdown and unified modes
+
 ### Critic Markup
 
 - **Change tracking**: Additions (`{++text++}`), deletions (`{--text--}`), substitutions (`{~~old~>new~~}`)
@@ -131,10 +142,18 @@ apex input.md --mode kramdown
 - `--id-format FORMAT` - Header ID format: `gfm`, `mmd`, or `kramdown`
 - `--no-ids` - Disable automatic header ID generation
 - `--header-anchors` - Generate `<a>` anchor tags instead of header IDs
+- `--bibliography FILE` - Bibliography file (BibTeX, CSL JSON, or CSL YAML) - can be used multiple times
+- `--csl FILE` - Citation style file (CSL format)
+- `--link-citations` - Link citations to bibliography entries
 
 ## Documentation
 
 For complete documentation, see the [Apex Wiki](https://github.com/ttscoff/apex/wiki).
+
+Key documentation pages:
+- [Citations and Bibliography](https://github.com/ttscoff/apex/wiki/Citations) - Complete guide to citations and bibliographies
+- [Command Line Options](https://github.com/ttscoff/apex/wiki/Command-Line-Options) - All CLI flags explained
+- [Syntax Reference](https://github.com/ttscoff/apex/wiki/Syntax) - Complete syntax reference
 
 ## Contributing
 
