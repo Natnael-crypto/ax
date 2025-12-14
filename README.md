@@ -1,6 +1,9 @@
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+
 # Apex
+
 
 Apex is a unified Markdown processor that combines the best features from CommonMark, GitHub Flavored Markdown (GFM), MultiMarkdown, Kramdown, and Marked. One processor to rule them all.
 
@@ -96,7 +99,7 @@ brew install ttscoff/thelab/apex
 git clone https://github.com/ttscoff/apex.git
 cd apex
 git submodule update --init --recursive
-make build
+make
 ```
 
 The `apex` binary will be in the `build/` directory.
@@ -107,7 +110,14 @@ To install the built binary and libraries system-wide:
 make install
 ```
 
-**Note:** The `make build` command runs both `cmake -S . -B build` (to configure the project) and `cmake --build build` (to compile). If you prefer to run cmake commands directly, you can use those instead.
+**Note:** The default `make` command runs both `cmake -S . -B build` (to configure the project) and `cmake --build build` (to compile). If you prefer to run cmake commands directly, you can use those instead.
+
+### Pre-built Binaries
+
+Download pre-built binaries from the [latest release](https://github.com/ttscoff/apex/releases/latest). Binaries are available for:
+
+- macOS (Universal binary for arm64 and x86_64)
+- Linux (x86_64 and arm64)
 
 ## Basic Usage
 
@@ -184,4 +194,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE]([LICENSE](https://github.com/ttscoff/apex/blob/main/LICENSE)) file for details.
