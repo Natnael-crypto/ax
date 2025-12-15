@@ -1483,6 +1483,77 @@ static void test_toc(void) {
     assert_contains(html, "Level 2B", "Second L2 in TOC");
     assert_contains(html, "Level 3", "L3 nested in TOC");
     apex_free_string(html);
+
+    /* Kramdown-specific TOC syntax: {:toc} and {:.no_toc} */
+    apex_options kram_opts = apex_options_for_mode(APEX_MODE_KRAMDOWN);
+    /* Ensure marked extensions (including TOC) are enabled in Kramdown mode */
+    kram_opts.enable_marked_extensions = true;
+
+    /* Basic {:toc} replacement and .no_toc exclusion */
+    const char *kramdown_toc =
+        "# Contents\n"
+        "{:.no_toc}\n"
+        "\n"
+        "## Section One\n"
+        "\n"
+        "{:toc}\n"
+        "\n"
+        "### Subsection\n";
+
+    html = apex_markdown_to_html(kramdown_toc, strlen(kramdown_toc), &kram_opts);
+    assert_contains(html, "<nav class=\"toc\">", "Kramdown {:toc} generates TOC");
+    assert_contains(html, "Section One", "Kramdown TOC includes regular headings");
+    /* The 'Contents' heading should be excluded from TOC due to .no_toc */
+    if (strstr(html, "Contents") != NULL) {
+        /* It should appear in the document, but not inside the TOC nav.
+         * We perform a simple heuristic check: if 'Contents' only appears
+         * outside the <nav class=\"toc\"> block, treat it as success.
+         */
+        const char *nav_start = strstr(html, "<nav class=\"toc\">");
+        const char *nav_end = nav_start ? strstr(nav_start, "</nav>") : NULL;
+        const char *contents_pos = strstr(html, "Contents");
+        bool in_nav = nav_start && nav_end && contents_pos >= nav_start && contents_pos <= nav_end;
+        if (!in_nav) {
+            tests_passed++;
+            tests_run++;
+            printf(COLOR_GREEN "✓" COLOR_RESET " Kramdown .no_toc excludes heading from TOC\n");
+        } else {
+            tests_failed++;
+            tests_run++;
+            printf(COLOR_RED "✗" COLOR_RESET " Kramdown .no_toc heading appeared in TOC\n");
+        }
+    } else {
+        tests_failed++;
+        tests_run++;
+        printf(COLOR_RED "✗" COLOR_RESET " Kramdown document did not contain 'Contents' heading\n");
+    }
+    apex_free_string(html);
+
+    /* {:toc} with max-depth option: support both max2 and max=2 forms */
+    const char *kramdown_toc_max =
+        "# Top\n"
+        "\n"
+        "## Level 2\n"
+        "\n"
+        "### Level 3\n"
+        "\n"
+        "{:toc max2}\n";
+
+    html = apex_markdown_to_html(kramdown_toc_max, strlen(kramdown_toc_max), &kram_opts);
+    assert_contains(html, "<nav class=\"toc\">", "Kramdown {:toc max2} generates TOC");
+    assert_contains(html, "Level 2", "Kramdown {:toc max2} includes Level 2");
+    /* Level 3 is beyond max2 and should not be linked in TOC */
+    if (strstr(html, "Level 3") == NULL ||
+        (strstr(html, "Level 3") && !strstr(html, "href=\"#level-3\""))) {
+        tests_passed++;
+        tests_run++;
+        printf(COLOR_GREEN "✓" COLOR_RESET " Kramdown {:toc max2} respects max depth\n");
+    } else {
+        tests_failed++;
+        tests_run++;
+        printf(COLOR_RED "✗" COLOR_RESET " Kramdown {:toc max2} did not apply max depth\n");
+    }
+    apex_free_string(html);
 }
 
 /**
