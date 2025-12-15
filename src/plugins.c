@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <errno.h>
 #include <regex.h>
+#include <sys/time.h>
+#include <stdio.h>
 
 /* External command runner for plugins (from plugins_env.c) */
 char *apex_run_external_plugin_command(const char *cmd,
@@ -14,6 +16,34 @@ char *apex_run_external_plugin_command(const char *cmd,
                                        const char *plugin_id,
                                        const char *text,
                                        int timeout_ms);
+
+/* ------------------------------------------------------------------------- */
+/* Profiling helpers                                                         */
+/*                                                                           */
+/* Plugin profiling is controlled by environment variables:                  */
+/*   - APEX_PROFILE_PLUGINS: if set to 1/yes/true, enables plugin profiling  */
+/*   - otherwise, falls back to APEX_PROFILE (same flag used in apex.c)      */
+/*                                                                           */
+/* When enabled, we emit timing for each plugin invocation and for the       */
+/* overall phase run (pre_parse/post_render). Output goes to stderr.         */
+/* ------------------------------------------------------------------------- */
+
+static int apex_plugins_profiling_enabled(void) {
+    const char *env = getenv("APEX_PROFILE_PLUGINS");
+    if (!env || !*env) {
+        env = getenv("APEX_PROFILE");
+    }
+    if (!env) return 0;
+    return (strcmp(env, "1") == 0 ||
+            strcmp(env, "yes") == 0 ||
+            strcmp(env, "true") == 0);
+}
+
+static double apex_plugins_time_ms(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+}
 
 struct apex_plugin {
     char *id;
@@ -480,24 +510,38 @@ char *apex_plugins_run_text_phase(apex_plugin_manager *manager,
                                   const char *text,
                                   const apex_options *options) {
     if (!manager || !text || !options) return NULL;
-    char *current = strdup(text);
-    if (!current) return NULL;
 
+    int do_profile = apex_plugins_profiling_enabled();
+    double phase_start = 0.0;
+    if (do_profile) {
+        phase_start = apex_plugins_time_ms();
+    }
+
+    const char *phase_name = "unknown";
     struct apex_plugin *plist = NULL;
     if (phase == APEX_PLUGIN_PHASE_PRE_PARSE) {
         plist = manager->pre_parse;
+        phase_name = "pre_parse";
     } else if (phase == APEX_PLUGIN_PHASE_POST_RENDER) {
         plist = manager->post_render;
+        phase_name = "post_render";
     }
+
+    char *current = strdup(text);
+    if (!current) return NULL;
 
     for (struct apex_plugin *p = plist; p; p = p->next) {
         if (!(p->phases & phase)) continue;
 
         char *next = NULL;
-        if (p->handler_command) {
-            const char *phase_name = (phase == APEX_PLUGIN_PHASE_PRE_PARSE) ? "pre_parse" : "post_render";
-            const char *plugin_id = p->id ? p->id : "plugin";
+        const char *plugin_id = p->id ? p->id : "plugin";
 
+        double plugin_start = 0.0;
+        if (do_profile) {
+            plugin_start = apex_plugins_time_ms();
+        }
+
+        if (p->handler_command) {
             /* Temporarily set APEX_PLUGIN_DIR for this plugin, if available */
             char *old_dir = NULL;
             char *old_support = NULL;
@@ -551,10 +595,27 @@ char *apex_plugins_run_text_phase(apex_plugin_manager *manager,
             next = apply_regex_replacement(p, current);
         }
 
+        if (do_profile) {
+            double plugin_elapsed = apex_plugins_time_ms() - plugin_start;
+            fprintf(stderr,
+                    "[PROFILE] plugin %-24s (%s): %8.2f ms\n",
+                    plugin_id,
+                    phase_name,
+                    plugin_elapsed);
+        }
+
         if (next) {
             free(current);
             current = next;
         }
+    }
+
+    if (do_profile) {
+        double phase_elapsed = apex_plugins_time_ms() - phase_start;
+        fprintf(stderr,
+                "[PROFILE] plugins_phase (%s):       %8.2f ms\n",
+                phase_name,
+                phase_elapsed);
     }
 
     if (strcmp(current, text) == 0) {
