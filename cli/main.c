@@ -11,6 +11,8 @@
 #include <unistd.h>
 #include <libgen.h>
 #include <sys/time.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 /* Remote plugin directory helpers (from plugins_remote.c) */
 typedef struct apex_remote_plugin apex_remote_plugin;
@@ -18,6 +20,9 @@ typedef struct apex_remote_plugin_list apex_remote_plugin_list;
 
 apex_remote_plugin_list *apex_remote_fetch_directory(const char *url);
 void apex_remote_print_plugins(apex_remote_plugin_list *list);
+void apex_remote_print_plugins_filtered(apex_remote_plugin_list *list,
+                                        const char **installed_ids,
+                                        size_t installed_count);
 apex_remote_plugin *apex_remote_find_plugin(apex_remote_plugin_list *list, const char *id);
 void apex_remote_free_plugins(apex_remote_plugin_list *list);
 const char *apex_remote_plugin_repo(apex_remote_plugin *p);
@@ -73,8 +78,9 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "  --[no-]autolink        Enable autolinking of URLs and email addresses\n");
     fprintf(stderr, "  --obfuscate-emails     Obfuscate email links/text using HTML entities\n");
     fprintf(stderr, "  --[no-]plugins         Enable or disable external/plugin processing (default: off)\n");
-    fprintf(stderr, "  --list-plugins         List available plugins from the remote directory\n");
+    fprintf(stderr, "  --list-plugins         List installed plugins and available plugins from the remote directory\n");
     fprintf(stderr, "  --install-plugin ID    Install plugin with given id from the remote directory\n");
+    fprintf(stderr, "  --uninstall-plugin ID  Uninstall a locally installed plugin by id\n");
     fprintf(stderr, "  --[no-]relaxed-tables  Enable relaxed table parsing (no separator rows required)\n");
     fprintf(stderr, "  --[no-]sup-sub         Enable MultiMarkdown-style superscript (^text^) and subscript (~text~) syntax\n");
     fprintf(stderr, "  --[no-]transforms      Enable metadata variable transforms [%%key:transform] (enabled by default in unified mode)\n");
@@ -189,6 +195,7 @@ int main(int argc, char *argv[]) {
     bool plugins_cli_value = false;
     bool list_plugins = false;
     const char *install_plugin_id = NULL;
+    const char *uninstall_plugin_id = NULL;
     const char *input_file = NULL;
     const char *output_file = NULL;
     const char *meta_file = NULL;
@@ -249,6 +256,12 @@ int main(int argc, char *argv[]) {
                 return 1;
             }
             install_plugin_id = argv[i];
+        } else if (strcmp(argv[i], "--uninstall-plugin") == 0) {
+            if (++i >= argc) {
+                fprintf(stderr, "Error: --uninstall-plugin requires an id argument\n");
+                return 1;
+            }
+            uninstall_plugin_id = argv[i];
         } else if (strcmp(argv[i], "--no-tables") == 0) {
             options.enable_tables = false;
         } else if (strcmp(argv[i], "--no-footnotes") == 0) {
@@ -457,17 +470,177 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    /* Handle plugin listing/installation commands before normal conversion */
-    if (list_plugins || install_plugin_id) {
+    /* Handle plugin listing/installation/uninstallation commands before normal conversion */
+    if (list_plugins || install_plugin_id || uninstall_plugin_id) {
+        if ((install_plugin_id && uninstall_plugin_id) || (list_plugins && uninstall_plugin_id && install_plugin_id)) {
+            fprintf(stderr, "Error: --install-plugin and --uninstall-plugin cannot be combined.\n");
+            return 1;
+        }
+
+        /* Determine plugins root: $XDG_CONFIG_HOME/apex/plugins or ~/.config/apex/plugins */
+        const char *xdg = getenv("XDG_CONFIG_HOME");
+        char root[1024];
+        if (xdg && *xdg) {
+            snprintf(root, sizeof(root), "%s/apex/plugins", xdg);
+        } else {
+            const char *home = getenv("HOME");
+            if (!home || !*home) {
+                fprintf(stderr, "Error: HOME not set; cannot determine plugin directory.\n");
+                return 1;
+            }
+            snprintf(root, sizeof(root), "%s/.config/apex/plugins", home);
+        }
+
+        /* Uninstall plugin: local only, no remote directory needed */
+        if (uninstall_plugin_id) {
+            char target[1200];
+            snprintf(target, sizeof(target), "%s/%s", root, uninstall_plugin_id);
+
+            struct stat st;
+            if (stat(target, &st) != 0 || !S_ISDIR(st.st_mode)) {
+                fprintf(stderr, "Error: plugin '%s' is not installed at %s\n", uninstall_plugin_id, target);
+                return 1;
+            }
+
+            fprintf(stderr, "About to remove plugin directory:\n  %s\n", target);
+            fprintf(stderr, "This will delete all files in that directory (but not any support data).\n");
+            fprintf(stderr, "Proceed? [y/N]: ");
+            fflush(stderr);
+
+            char answer[16];
+            if (!fgets(answer, sizeof(answer), stdin)) {
+                fprintf(stderr, "Aborted.\n");
+                return 1;
+            }
+            if (answer[0] != 'y' && answer[0] != 'Y') {
+                fprintf(stderr, "Aborted.\n");
+                return 1;
+            }
+
+            char rm_cmd[1400];
+            snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf \"%s\"", target);
+            int rm_rc = system(rm_cmd);
+            if (rm_rc != 0) {
+                fprintf(stderr, "Error: failed to remove plugin directory '%s'.\n", target);
+                return 1;
+            }
+
+            fprintf(stderr, "Uninstalled plugin '%s' from %s\n", uninstall_plugin_id, target);
+            return 0;
+        }
+
+        /* List and install rely on the remote directory as well as local plugins */
+
+        /* Collect installed plugin ids from the global plugins directory (if it exists) */
+        char **installed_ids = NULL;
+        size_t installed_count = 0;
+        size_t installed_cap = 0;
+
+        DIR *d = opendir(root);
+        if (d) {
+            struct dirent *ent;
+            while ((ent = readdir(d)) != NULL) {
+                if (ent->d_name[0] == '.') continue;
+
+                char plugin_dir[1200];
+                snprintf(plugin_dir, sizeof(plugin_dir), "%s/%s", root, ent->d_name);
+                struct stat st2;
+                if (stat(plugin_dir, &st2) != 0 || !S_ISDIR(st2.st_mode)) {
+                    continue;
+                }
+
+                /* Look for plugin.yml or plugin.yaml */
+                char manifest[1300];
+                snprintf(manifest, sizeof(manifest), "%s/plugin.yml", plugin_dir);
+                FILE *test = fopen(manifest, "r");
+                if (!test) {
+                    snprintf(manifest, sizeof(manifest), "%s/plugin.yaml", plugin_dir);
+                    test = fopen(manifest, "r");
+                }
+                if (!test) {
+                    continue;
+                }
+                fclose(test);
+
+                apex_metadata_item *meta = apex_load_metadata_from_file(manifest);
+                if (!meta) continue;
+
+                const char *id = NULL;
+                const char *title = NULL;
+                const char *author = NULL;
+                const char *description = NULL;
+                const char *homepage = NULL;
+
+                for (apex_metadata_item *m = meta; m; m = m->next) {
+                    if (strcmp(m->key, "id") == 0) id = m->value;
+                    else if (strcmp(m->key, "title") == 0) title = m->value;
+                    else if (strcmp(m->key, "author") == 0) author = m->value;
+                    else if (strcmp(m->key, "description") == 0) description = m->value;
+                    else if (strcmp(m->key, "homepage") == 0) homepage = m->value;
+                }
+
+                const char *final_id = id ? id : ent->d_name;
+                if (final_id) {
+                    if (installed_count == installed_cap) {
+                        size_t new_cap = installed_cap ? installed_cap * 2 : 8;
+                        char **tmp = realloc(installed_ids, new_cap * sizeof(char *));
+                        if (!tmp) {
+                            apex_free_metadata(meta);
+                            break;
+                        }
+                        installed_ids = tmp;
+                        installed_cap = new_cap;
+                    }
+                    installed_ids[installed_count++] = strdup(final_id);
+                }
+
+                if (list_plugins) {
+                    if (installed_count == 1) {
+                        /* First installed plugin we print: emit header */
+                        printf("## Installed Plugins\n\n");
+                    }
+                    const char *print_title = title ? title : final_id;
+                    const char *print_author = author ? author : "";
+                    printf("%-20s - %s", final_id, print_title);
+                    if (print_author && *print_author) {
+                        printf("  (author: %s)", print_author);
+                    }
+                    printf("\n");
+                    if (description && *description) {
+                        printf("    %s\n", description);
+                    }
+                    if (homepage && *homepage) {
+                        printf("    homepage: %s\n", homepage);
+                    }
+                }
+
+                apex_free_metadata(meta);
+            }
+            closedir(d);
+        }
+
+        if (list_plugins) {
+            printf("\n---\n\n");
+            printf("## Available Plugins\n\n");
+        }
+
         const char *dir_url = "https://raw.githubusercontent.com/ApexMarkdown/apex-plugins/refs/heads/main/apex-plugins.json";
         apex_remote_plugin_list *plist = apex_remote_fetch_directory(dir_url);
         if (!plist) {
             fprintf(stderr, "Error: failed to fetch plugin directory from %s\n", dir_url);
+            if (installed_ids) {
+                for (size_t i = 0; i < installed_count; i++) free(installed_ids[i]);
+                free(installed_ids);
+            }
             return 1;
         }
         if (list_plugins) {
-            apex_remote_print_plugins(plist);
+            apex_remote_print_plugins_filtered(plist, (const char **)installed_ids, installed_count);
             apex_remote_free_plugins(plist);
+            if (installed_ids) {
+                for (size_t i = 0; i < installed_count; i++) free(installed_ids[i]);
+                free(installed_ids);
+            }
             return 0;
         }
         if (install_plugin_id) {

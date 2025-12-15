@@ -219,12 +219,25 @@ apex_remote_plugin_list *apex_remote_fetch_directory(const char *url) {
     return list;
 }
 
-void apex_remote_print_plugins(apex_remote_plugin_list *list) {
+void apex_remote_print_plugins_filtered(apex_remote_plugin_list *list,
+                                        const char **installed_ids,
+                                        size_t installed_count) {
     if (!list || !list->head) {
         fprintf(stderr, "No plugins found in remote directory.\n");
         return;
     }
     for (apex_remote_plugin *p = list->head; p; p = p->next) {
+        int skip = 0;
+        if (installed_ids && installed_count > 0 && p->id) {
+            for (size_t i = 0; i < installed_count; i++) {
+                if (installed_ids[i] && strcmp(installed_ids[i], p->id) == 0) {
+                    skip = 1;
+                    break;
+                }
+            }
+        }
+        if (skip) continue;
+
         const char *title = p->title ? p->title : p->id;
         const char *author = p->author ? p->author : "";
         printf("%-20s - %s", p->id, title);
@@ -241,6 +254,10 @@ void apex_remote_print_plugins(apex_remote_plugin_list *list) {
             printf("    repo: %s\n", p->repo);
         }
     }
+}
+
+void apex_remote_print_plugins(apex_remote_plugin_list *list) {
+    apex_remote_print_plugins_filtered(list, NULL, 0);
 }
 
 apex_remote_plugin *apex_remote_find_plugin(apex_remote_plugin_list *list, const char *id) {
