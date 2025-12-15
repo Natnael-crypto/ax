@@ -1,5 +1,5 @@
 
-[![Version: 0.1.26](https://img.shields.io/badge/Version-0.1.26-528c9e)](https://github.com/ApexMarkdown/apex/releases/latest) ![](https://img.shields.io/badge/CMake-064F8C?style=for-the-badge&logo=cmake&logoColor=white) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Version: 0.1.28](https://img.shields.io/badge/Version-0.1.28-528c9e)](https://github.com/ApexMarkdown/apex/releases/latest) ![](https://img.shields.io/badge/CMake-064F8C?style=for-the-badge&logo=cmake&logoColor=white) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 
 # Apex
@@ -190,7 +190,7 @@ apex input.md --mode kramdown
 ### All Options
 
 ```
-Apex Markdown Processor v0.1.26
+Apex Markdown Processor v0.1.28
 One Markdown processor to rule them all
 
 Usage: build/apex [options] [file]
@@ -218,8 +218,9 @@ Options:
   --[no-]autolink        Enable autolinking of URLs and email addresses
   --obfuscate-emails     Obfuscate email links/text using HTML entities
   --[no-]plugins         Enable or disable external/plugin processing (default: off)
-  --list-plugins         List available plugins from the remote directory
+  --list-plugins         List installed plugins and available plugins from the remote directory
   --install-plugin ID    Install plugin with given id from the remote directory
+  --uninstall-plugin ID  Uninstall a locally installed plugin by id
   --[no-]relaxed-tables  Enable relaxed table parsing (no separator rows required)
   --[no-]sup-sub         Enable MultiMarkdown-style superscript (^text^) and subscript (~text~) syntax
   --[no-]transforms      Enable metadata variable transforms [%key:transform] (enabled by default in unified mode)

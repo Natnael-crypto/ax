@@ -2,6 +2,24 @@
 
 All notable changes to Apex will be documented in this file.
 
+## [0.1.29] - 2025-12-15
+
+### Changed
+
+- Make --list-plugins show installed plugins before remote ones.
+- Prevent remote plugins that are already installed from being listed under Available Plugins.
+
+### New
+
+- Initial planning for a remote plugin directory and install features
+- Add --uninstall-plugin CLI flag to remove installed plugins.
+
+### Fixed
+
+- Superscript/subscript no longer process content inside Liquid {% %} tags.
+- Autolink detection skips Liquid {% %} tags so emails and URLs are not rewritten there.
+- Fix directory url for `--list-plugins`
+
 ## [0.1.28] - 2025-12-15
 
 ### Changed
@@ -424,6 +442,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Based on [cmark-gfm](https://github.com/github/cmark-gfm) by GitHub
 - Developed for [Marked](https://marked2app.com) by Brett Terpstra
 
+[0.1.29]: https://github.com/ttscoff/apex/releases/tag/v0.1.29
 [0.1.28]: https://github.com/ttscoff/apex/releases/tag/v0.1.28
 [0.1.27]: https://github.com/ttscoff/apex/releases/tag/v0.1.27
 [0.1.26]: https://github.com/ttscoff/apex/releases/tag/v0.1.26
