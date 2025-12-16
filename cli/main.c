@@ -79,7 +79,7 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "  --obfuscate-emails     Obfuscate email links/text using HTML entities\n");
     fprintf(stderr, "  --[no-]plugins         Enable or disable external/plugin processing (default: off)\n");
     fprintf(stderr, "  --list-plugins         List installed plugins and available plugins from the remote directory\n");
-    fprintf(stderr, "  --install-plugin ID    Install plugin with given id from the remote directory\n");
+    fprintf(stderr, "  --install-plugin ID    Install plugin by id from directory, or by Git URL/GitHub shorthand (user/repo)\n");
     fprintf(stderr, "  --uninstall-plugin ID  Uninstall a locally installed plugin by id\n");
     fprintf(stderr, "  --[no-]relaxed-tables  Enable relaxed table parsing (no separator rows required)\n");
     fprintf(stderr, "  --[no-]sup-sub         Enable MultiMarkdown-style superscript (^text^) and subscript (~text~) syntax\n");
@@ -110,6 +110,106 @@ static void print_version(void) {
     printf("Apex %s\n", apex_version_string());
     printf("Copyright (c) 2025 Brett Terpstra\n");
     printf("Licensed under MIT License\n");
+}
+
+/**
+ * Normalize a plugin identifier to a Git repository URL.
+ * Returns a newly allocated string that must be freed by caller, or NULL on error.
+ *
+ * Handles:
+ * - Full Git URLs (https://github.com/user/repo.git, git@github.com:user/repo.git, etc.)
+ * - GitHub shorthand (user/repo or ttscoff/apex-plugin-kbd)
+ * - Returns NULL if it doesn't look like a URL (treat as directory ID)
+ */
+static char *normalize_plugin_repo_url(const char *arg) {
+    if (!arg || !*arg) return NULL;
+
+    /* Check if it's already a full URL */
+    if (strstr(arg, "://") != NULL || strstr(arg, "@") != NULL) {
+        /* Looks like a URL - return as-is (but ensure .git suffix for GitHub URLs) */
+        if (strncmp(arg, "https://github.com/", 19) == 0 ||
+            strncmp(arg, "http://github.com/", 18) == 0 ||
+            strncmp(arg, "git@github.com:", 15) == 0) {
+            /* GitHub URL - ensure it ends with .git */
+            size_t len = strlen(arg);
+            if (len < 4 || strcmp(arg + len - 4, ".git") != 0) {
+                char *url = malloc(len + 5);
+                if (!url) return NULL;
+                snprintf(url, len + 5, "%s.git", arg);
+                return url;
+            }
+        }
+        return strdup(arg);
+    }
+
+    /* Check if it's GitHub shorthand (user/repo format) */
+    const char *slash = strchr(arg, '/');
+    if (slash && slash != arg && slash[1] != '\0') {
+        /* Looks like user/repo - convert to https://github.com/user/repo.git */
+        size_t len = strlen(arg);
+        char *url = malloc(19 + len + 5); /* "https://github.com/" + arg + ".git" */
+        if (!url) return NULL;
+        snprintf(url, 19 + len + 5, "https://github.com/%s.git", arg);
+        return url;
+    }
+
+    /* Doesn't look like a URL - return NULL to indicate it should be treated as an ID */
+    return NULL;
+}
+
+/**
+ * Extract plugin ID from a cloned repository.
+ * Reads plugin.yml or plugin.yaml and extracts the 'id' field.
+ * Falls back to the directory name if no manifest is found.
+ * Returns a newly allocated string that must be freed by caller.
+ */
+static char *extract_plugin_id_from_repo(const char *repo_path) {
+    char manifest[1300];
+    snprintf(manifest, sizeof(manifest), "%s/plugin.yml", repo_path);
+    FILE *mt = fopen(manifest, "r");
+    if (!mt) {
+        snprintf(manifest, sizeof(manifest), "%s/plugin.yaml", repo_path);
+        mt = fopen(manifest, "r");
+    }
+
+    if (mt) {
+        fclose(mt);
+        apex_metadata_item *meta = apex_load_metadata_from_file(manifest);
+        if (meta) {
+            const char *id = NULL;
+            for (apex_metadata_item *m = meta; m; m = m->next) {
+                if (strcmp(m->key, "id") == 0) {
+                    id = m->value;
+                    break;
+                }
+            }
+            if (id && *id) {
+                char *result = strdup(id);
+                apex_free_metadata(meta);
+                return result;
+            }
+            apex_free_metadata(meta);
+        }
+    }
+
+    /* Fallback: extract from repo path (last component) */
+    const char *last_slash = strrchr(repo_path, '/');
+    if (last_slash && last_slash[1] != '\0') {
+        const char *name = last_slash + 1;
+        /* Remove .git suffix if present */
+        size_t len = strlen(name);
+        if (len > 4 && strcmp(name + len - 4, ".git") == 0) {
+            len -= 4;
+        }
+        char *result = malloc(len + 1);
+        if (result) {
+            memcpy(result, name, len);
+            result[len] = '\0';
+            return result;
+        }
+    }
+
+    return NULL;
 }
 
 static char *read_file(const char *filename, size_t *len) {
@@ -659,17 +759,42 @@ int main(int argc, char *argv[]) {
             printf("## Available Plugins\n\n");
         }
 
-        const char *dir_url = "https://raw.githubusercontent.com/ApexMarkdown/apex-plugins/refs/heads/main/apex-plugins.json";
-        apex_remote_plugin_list *plist = apex_remote_fetch_directory(dir_url);
-        if (!plist) {
-            fprintf(stderr, "Error: failed to fetch plugin directory from %s\n", dir_url);
-            if (installed_ids) {
-                for (size_t i = 0; i < installed_count; i++) free(installed_ids[i]);
-                free(installed_ids);
+        /* Check if install_plugin_id is a direct URL/shorthand - if so, skip directory fetch */
+        char *normalized_repo_check = NULL;
+        bool is_direct_url = false;
+        if (install_plugin_id) {
+            normalized_repo_check = normalize_plugin_repo_url(install_plugin_id);
+            is_direct_url = (normalized_repo_check != NULL);
+            if (normalized_repo_check) {
+                free(normalized_repo_check);
+                normalized_repo_check = NULL;
             }
-            return 1;
         }
+
+        apex_remote_plugin_list *plist = NULL;
+        if (!is_direct_url) {
+            /* Only fetch directory if we need it (list_plugins or install by ID) */
+            const char *dir_url = "https://raw.githubusercontent.com/ApexMarkdown/apex-plugins/refs/heads/main/apex-plugins.json";
+            plist = apex_remote_fetch_directory(dir_url);
+            if (!plist && (list_plugins || install_plugin_id)) {
+                fprintf(stderr, "Error: failed to fetch plugin directory from %s\n", dir_url);
+                if (installed_ids) {
+                    for (size_t i = 0; i < installed_count; i++) free(installed_ids[i]);
+                    free(installed_ids);
+                }
+                return 1;
+            }
+        }
+
         if (list_plugins) {
+            if (!plist) {
+                fprintf(stderr, "Error: cannot list plugins without directory access.\n");
+                if (installed_ids) {
+                    for (size_t i = 0; i < installed_count; i++) free(installed_ids[i]);
+                    free(installed_ids);
+                }
+                return 1;
+            }
             apex_remote_print_plugins_filtered(plist, (const char **)installed_ids, installed_count);
             apex_remote_free_plugins(plist);
             if (installed_ids) {
@@ -679,12 +804,45 @@ int main(int argc, char *argv[]) {
             return 0;
         }
         if (install_plugin_id) {
-            apex_remote_plugin *rp = apex_remote_find_plugin(plist, install_plugin_id);
-            const char *repo = apex_remote_plugin_repo(rp);
-            if (!rp || !repo) {
-                fprintf(stderr, "Error: plugin '%s' not found in directory.\n", install_plugin_id);
-                apex_remote_free_plugins(plist);
-                return 1;
+            const char *repo = NULL;
+            char *normalized_repo = NULL;
+            char *final_plugin_id = NULL;
+
+            /* Check if install_plugin_id is a URL or GitHub shorthand */
+            normalized_repo = normalize_plugin_repo_url(install_plugin_id);
+
+            if (normalized_repo) {
+                /* Direct URL/shorthand - use it as the repo URL */
+                repo = normalized_repo;
+
+                /* Security confirmation for out-of-directory installs */
+                fprintf(stderr,
+                        "Apex plugins execute unverified code. Only install plugins from trusted sources.\n"
+                        "Continue? (y/n) ");
+                fflush(stderr);
+                char answer[8] = {0};
+                if (!fgets(answer, sizeof(answer), stdin) ||
+                    (answer[0] != 'y' && answer[0] != 'Y')) {
+                    fprintf(stderr, "Aborted plugin install.\n");
+                    free(normalized_repo);
+                    if (plist) {
+                        apex_remote_free_plugins(plist);
+                    }
+                    return 1;
+                }
+                /* We'll extract the plugin ID after cloning */
+            } else {
+                /* Not a URL - treat as directory ID and look it up */
+                apex_remote_plugin *rp = apex_remote_find_plugin(plist, install_plugin_id);
+                repo = apex_remote_plugin_repo(rp);
+                if (!rp || !repo) {
+                    fprintf(stderr, "Error: plugin '%s' not found in directory.\n", install_plugin_id);
+                    if (plist) {
+                        apex_remote_free_plugins(plist);
+                    }
+                    return 1;
+                }
+                final_plugin_id = strdup(install_plugin_id);
             }
 
             /* Determine plugins root: $XDG_CONFIG_HOME/apex/plugins or ~/.config/apex/plugins */
@@ -696,6 +854,8 @@ int main(int argc, char *argv[]) {
                 const char *home = getenv("HOME");
                 if (!home || !*home) {
                     fprintf(stderr, "Error: HOME not set; cannot determine plugin install directory.\n");
+                    if (normalized_repo) free(normalized_repo);
+                    if (final_plugin_id) free(final_plugin_id);
                     apex_remote_free_plugins(plist);
                     return 1;
                 }
@@ -708,40 +868,120 @@ int main(int argc, char *argv[]) {
             int mkrc = system(mkdir_cmd);
             if (mkrc != 0) {
                 fprintf(stderr, "Error: failed to create plugin directory '%s'.\n", root);
+                if (normalized_repo) free(normalized_repo);
+                if (final_plugin_id) free(final_plugin_id);
                 apex_remote_free_plugins(plist);
                 return 1;
             }
 
-            /* Final target path */
-            char target[1200];
-            snprintf(target, sizeof(target), "%s/%s", root, install_plugin_id);
+            /* For direct URLs, we need a temporary directory name for cloning */
+            /* We'll rename it after extracting the plugin ID */
+            char temp_target[1200];
+            if (!final_plugin_id) {
+                /* Extract a temporary name from the URL for cloning */
+                const char *last_slash = strrchr(repo, '/');
+                const char *name_start = last_slash ? (last_slash + 1) : repo;
+                const char *name_end = strstr(name_start, ".git");
+                if (!name_end) name_end = name_start + strlen(name_start);
+                size_t name_len = name_end - name_start;
+                if (name_len > 0 && name_len < 200) {
+                    char temp_name[256];
+                    memcpy(temp_name, name_start, name_len);
+                    temp_name[name_len] = '\0';
+                    snprintf(temp_target, sizeof(temp_target), "%s/.apex_install_%s", root, temp_name);
+                } else {
+                    snprintf(temp_target, sizeof(temp_target), "%s/.apex_install_temp", root);
+                }
+            } else {
+                snprintf(temp_target, sizeof(temp_target), "%s/%s", root, final_plugin_id);
+            }
 
-            /* Refuse to overwrite existing directory for now */
+            /* Refuse to overwrite existing directory */
             char test_cmd[1300];
-            snprintf(test_cmd, sizeof(test_cmd), "[ -d \"%s\" ]", target);
+            if (final_plugin_id) {
+                snprintf(test_cmd, sizeof(test_cmd), "[ -d \"%s\" ]", temp_target);
+            } else {
+                /* For temp dir, check if it exists and clean it up */
+                snprintf(test_cmd, sizeof(test_cmd), "[ -d \"%s\" ]", temp_target);
+            }
             int exists_rc = system(test_cmd);
-            if (exists_rc == 0) {
-                fprintf(stderr, "Error: plugin directory '%s' already exists. Remove it first to reinstall.\n", target);
+            if (exists_rc == 0 && final_plugin_id) {
+                fprintf(stderr, "Error: plugin directory '%s' already exists. Remove it first to reinstall.\n", temp_target);
+                if (normalized_repo) free(normalized_repo);
+                if (final_plugin_id) free(final_plugin_id);
                 apex_remote_free_plugins(plist);
                 return 1;
             }
 
             /* Clone repo using git */
             char clone_cmd[2048];
-            snprintf(clone_cmd, sizeof(clone_cmd), "git clone \"%s\" \"%s\"", repo, target);
+            snprintf(clone_cmd, sizeof(clone_cmd), "git clone \"%s\" \"%s\"", repo, temp_target);
             int git_rc = system(clone_cmd);
             if (git_rc != 0) {
                 fprintf(stderr, "Error: git clone failed for '%s'. Is git installed and the URL correct?\n", repo);
+                if (normalized_repo) free(normalized_repo);
+                if (final_plugin_id) free(final_plugin_id);
                 apex_remote_free_plugins(plist);
                 return 1;
             }
 
+            /* Extract plugin ID from cloned repo if we don't have it yet */
+            if (!final_plugin_id) {
+                final_plugin_id = extract_plugin_id_from_repo(temp_target);
+                if (!final_plugin_id) {
+                    fprintf(stderr, "Error: could not determine plugin ID from repository. Make sure plugin.yml exists with an 'id' field.\n");
+                    /* Clean up temp directory */
+                    char rm_cmd[1300];
+                    snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf \"%s\"", temp_target);
+                    system(rm_cmd);
+                    if (normalized_repo) free(normalized_repo);
+                    apex_remote_free_plugins(plist);
+                    return 1;
+                }
+
+                /* Move temp directory to final location */
+                char final_target[1200];
+                snprintf(final_target, sizeof(final_target), "%s/%s", root, final_plugin_id);
+
+                /* Check if final location already exists */
+                char final_test_cmd[1300];
+                snprintf(final_test_cmd, sizeof(final_test_cmd), "[ -d \"%s\" ]", final_target);
+                int final_exists_rc = system(final_test_cmd);
+                if (final_exists_rc == 0) {
+                    fprintf(stderr, "Error: plugin directory '%s' already exists. Remove it first to reinstall.\n", final_target);
+                    char rm_cmd[1300];
+                    snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf \"%s\"", temp_target);
+                    system(rm_cmd);
+                    free(final_plugin_id);
+                    if (normalized_repo) free(normalized_repo);
+                    apex_remote_free_plugins(plist);
+                    return 1;
+                }
+
+                /* Move temp to final */
+                char mv_cmd[2500];
+                snprintf(mv_cmd, sizeof(mv_cmd), "mv \"%s\" \"%s\"", temp_target, final_target);
+                int mv_rc = system(mv_cmd);
+                if (mv_rc != 0) {
+                    fprintf(stderr, "Error: failed to move plugin to final location '%s'.\n", final_target);
+                    char rm_cmd[1300];
+                    snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf \"%s\"", temp_target);
+                    system(rm_cmd);
+                    free(final_plugin_id);
+                    if (normalized_repo) free(normalized_repo);
+                    apex_remote_free_plugins(plist);
+                    return 1;
+                }
+                strncpy(temp_target, final_target, sizeof(temp_target) - 1);
+                temp_target[sizeof(temp_target) - 1] = '\0';
+            }
+
             /* After successful clone, look for a post_install hook in plugin.yml/yaml */
             char manifest[1300];
-            snprintf(manifest, sizeof(manifest), "%s/plugin.yml", target);
+            snprintf(manifest, sizeof(manifest), "%s/plugin.yml", temp_target);
             FILE *mt = fopen(manifest, "r");
             if (!mt) {
-                snprintf(manifest, sizeof(manifest), "%s/plugin.yaml", target);
+                snprintf(manifest, sizeof(manifest), "%s/plugin.yaml", temp_target);
                 mt = fopen(manifest, "r");
             }
             if (mt) {
@@ -756,20 +996,22 @@ int main(int argc, char *argv[]) {
                         }
                     }
                     if (post_install && *post_install) {
-                        fprintf(stderr, "Running post-install hook for '%s'...\n", install_plugin_id);
+                        fprintf(stderr, "Running post-install hook for '%s'...\n", final_plugin_id);
                         char hook_cmd[2048];
-                        snprintf(hook_cmd, sizeof(hook_cmd), "cd \"%s\" && %s", target, post_install);
+                        snprintf(hook_cmd, sizeof(hook_cmd), "cd \"%s\" && %s", temp_target, post_install);
                         int hook_rc = system(hook_cmd);
                         if (hook_rc != 0) {
                             fprintf(stderr, "Warning: post-install hook for '%s' exited with status %d\n",
-                                    install_plugin_id, hook_rc);
+                                    final_plugin_id, hook_rc);
                         }
                     }
                     apex_free_metadata(meta);
                 }
             }
 
-            fprintf(stderr, "Installed plugin '%s' into %s\n", install_plugin_id, target);
+            fprintf(stderr, "Installed plugin '%s' into %s\n", final_plugin_id, temp_target);
+            if (normalized_repo) free(normalized_repo);
+            if (final_plugin_id) free(final_plugin_id);
             apex_remote_free_plugins(plist);
             return 0;
         }

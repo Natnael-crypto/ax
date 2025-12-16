@@ -97,9 +97,13 @@ Apex supports a flexible plugin system that lets you add new syntax and post-pro
 
 You can manage plugins from the CLI:
 
-- Install from the central directory with `--install-plugin ID`.
+- Install plugins with `--install-plugin`:
+  - From the central directory using an ID: `--install-plugin kbd`
+  - Directly from a Git URL or GitHub shorthand: `--install-plugin https://github.com/user/repo.git` or `--install-plugin user/repo`
 - Uninstall a local plugin with `--uninstall-plugin ID`.
 - See installed and available plugins with `--list-plugins`.
+
+When installing from a direct Git URL or GitHub repo name, Apex will prompt with a security warning before cloning, since plugins execute unverified code.
 
 For a complete guide to writing, installing, and publishing plugins, see the [Plugins](https://github.com/ApexMarkdown/apex/wiki/Plugins) page in the Apex Wiki.
 
