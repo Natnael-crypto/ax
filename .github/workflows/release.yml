@@ -23,9 +23,9 @@ jobs:
                   YAML_PREFIX="$PWD/deps/libyaml-universal"
                   mkdir -p "$YAML_PREFIX"
                   echo "Downloading libyaml ${YAML_VERSION}..."
-                  curl -L "https://github.com/yaml/libyaml/archive/refs/tags/${YAML_VERSION}.tar.gz" -o libyaml.tar.gz
+                  curl -L "https://pyyaml.org/download/libyaml/yaml-${YAML_VERSION}.tar.gz" -o libyaml.tar.gz
                   tar -xzf libyaml.tar.gz
-                  cd "libyaml-${YAML_VERSION}"
+                  cd "yaml-${YAML_VERSION}"
                   echo "Configuring universal libyaml..."
                   CFLAGS="-arch arm64 -arch x86_64" LDFLAGS="-arch arm64 -arch x86_64" ./configure --prefix="$YAML_PREFIX"
                   echo "Building libyaml..."
