@@ -1,5 +1,5 @@
 
-[![Version: 0.1.33](https://img.shields.io/badge/Version-0.1.33-528c9e)](https://github.com/ApexMarkdown/apex/releases/latest) ![](https://img.shields.io/badge/CMake-064F8C?style=for-the-badge&logo=cmake&logoColor=white) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Version: 0.1.34](https://img.shields.io/badge/Version-0.1.34-528c9e)](https://github.com/ApexMarkdown/apex/releases/latest) ![](https://img.shields.io/badge/CMake-064F8C?style=for-the-badge&logo=cmake&logoColor=white) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 
 # Apex
@@ -97,9 +97,13 @@ Apex supports a flexible plugin system that lets you add new syntax and post-pro
 
 You can manage plugins from the CLI:
 
-- Install from the central directory with `--install-plugin ID`.
+- Install plugins with `--install-plugin`:
+  - From the central directory using an ID: `--install-plugin kbd`
+  - Directly from a Git URL or GitHub shorthand: `--install-plugin https://github.com/user/repo.git` or `--install-plugin user/repo`
 - Uninstall a local plugin with `--uninstall-plugin ID`.
 - See installed and available plugins with `--list-plugins`.
+
+When installing from a direct Git URL or GitHub repo name, Apex will prompt with a security warning before cloning, since plugins execute unverified code.
 
 For a complete guide to writing, installing, and publishing plugins, see the [Plugins](https://github.com/ApexMarkdown/apex/wiki/Plugins) page in the Apex Wiki.
 
@@ -198,7 +202,7 @@ apex input.md --mode kramdown
 ### All Options
 
 ```
-Apex Markdown Processor v0.1.29
+Apex Markdown Processor v0.1.34
 One Markdown processor to rule them all
 
 Usage: build/apex [options] [file]
@@ -227,7 +231,7 @@ Options:
   --obfuscate-emails     Obfuscate email links/text using HTML entities
   --[no-]plugins         Enable or disable external/plugin processing (default: off)
   --list-plugins         List installed plugins and available plugins from the remote directory
-  --install-plugin ID    Install plugin with given id from the remote directory
+  --install-plugin ID    Install plugin by id from directory, or by Git URL/GitHub shorthand (user/repo)
   --uninstall-plugin ID  Uninstall a locally installed plugin by id
   --[no-]relaxed-tables  Enable relaxed table parsing (no separator rows required)
   --[no-]sup-sub         Enable MultiMarkdown-style superscript (^text^) and subscript (~text~) syntax

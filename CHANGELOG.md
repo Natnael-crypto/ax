@@ -2,6 +2,18 @@
 
 All notable changes to Apex will be documented in this file.
 
+## [0.1.35] - 2025-12-16
+
+### Changed
+
+- Update Homebrew formula to install from a precompiled macOS universal binary instead of building from source with cmake.
+- Allow --install-plugin to accept a Git URL or GitHub shorthand (user/repo) in addition to directory IDs when installing plugins.
+
+### Improved
+
+- Simplify Homebrew installation so users no longer need cmake or Xcode build tools to install apex.
+- Add an interactive security confirmation when installing plugins from a direct Git URL or GitHub repo name, reminding users that plugins execute unverified code.
+
 ## [0.1.34] - 2025-12-16
 
 ## [0.1.33] - 2025-12-16
@@ -481,6 +493,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Based on [cmark-gfm](https://github.com/github/cmark-gfm) by GitHub
 - Developed for [Marked](https://marked2app.com) by Brett Terpstra
 
+[0.1.35]: https://github.com/ttscoff/apex/releases/tag/v0.1.35
 [0.1.34]: https://github.com/ttscoff/apex/releases/tag/v0.1.34
 [0.1.33]: https://github.com/ttscoff/apex/releases/tag/v0.1.33
 [0.1.32]: https://github.com/ttscoff/apex/releases/tag/v0.1.32
