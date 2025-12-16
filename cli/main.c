@@ -472,7 +472,7 @@ int main(int argc, char *argv[]) {
 
     /* Handle plugin listing/installation/uninstallation commands before normal conversion */
     if (list_plugins || install_plugin_id || uninstall_plugin_id) {
-        if ((install_plugin_id && uninstall_plugin_id) || (list_plugins && uninstall_plugin_id && install_plugin_id)) {
+        if ((install_plugin_id && uninstall_plugin_id) || (install_plugin_id && list_plugins && uninstall_plugin_id)) {
             fprintf(stderr, "Error: --install-plugin and --uninstall-plugin cannot be combined.\n");
             return 1;
         }
@@ -699,6 +699,39 @@ int main(int argc, char *argv[]) {
                 fprintf(stderr, "Error: git clone failed for '%s'. Is git installed and the URL correct?\n", repo);
                 apex_remote_free_plugins(plist);
                 return 1;
+            }
+
+            /* After successful clone, look for a post_install hook in plugin.yml/yaml */
+            char manifest[1300];
+            snprintf(manifest, sizeof(manifest), "%s/plugin.yml", target);
+            FILE *mt = fopen(manifest, "r");
+            if (!mt) {
+                snprintf(manifest, sizeof(manifest), "%s/plugin.yaml", target);
+                mt = fopen(manifest, "r");
+            }
+            if (mt) {
+                fclose(mt);
+                apex_metadata_item *meta = apex_load_metadata_from_file(manifest);
+                if (meta) {
+                    const char *post_install = NULL;
+                    for (apex_metadata_item *m = meta; m; m = m->next) {
+                        if (strcmp(m->key, "post_install") == 0) {
+                            post_install = m->value;
+                            break;
+                        }
+                    }
+                    if (post_install && *post_install) {
+                        fprintf(stderr, "Running post-install hook for '%s'...\n", install_plugin_id);
+                        char hook_cmd[2048];
+                        snprintf(hook_cmd, sizeof(hook_cmd), "cd \"%s\" && %s", target, post_install);
+                        int hook_rc = system(hook_cmd);
+                        if (hook_rc != 0) {
+                            fprintf(stderr, "Warning: post-install hook for '%s' exited with status %d\n",
+                                    install_plugin_id, hook_rc);
+                        }
+                    }
+                    apex_free_metadata(meta);
+                }
             }
 
             fprintf(stderr, "Installed plugin '%s' into %s\n", install_plugin_id, target);

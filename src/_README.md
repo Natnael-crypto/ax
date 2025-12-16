@@ -93,7 +93,15 @@ Apex is a unified Markdown processor that combines the best features from Common
 
 ### Extensibility and Plugins
 
-Apex supports a flexible plugin system that lets you add new syntax and post-processing features in any language while keeping the core parser stable and fast. Plugins are disabled by default so there is no performance impact unless you opt in. Enable them per run with `--plugins`, or per document with a `plugins: true` (or `enable-plugins: true`) key in your metadata. For a complete guide to writing and installing plugins, see the [Plugins](https://github.com/ApexMarkdown/apex/wiki/Plugins) page in the Apex Wiki.
+Apex supports a flexible plugin system that lets you add new syntax and post-processing features in any language while keeping the core parser stable and fast. Plugins are disabled by default so there is no performance impact unless you opt in. Enable them per run with `--plugins`, or per document with a `plugins: true` (or `enable-plugins: true`) key in your metadata.
+
+You can manage plugins from the CLI:
+
+- Install from the central directory with `--install-plugin ID`.
+- Uninstall a local plugin with `--uninstall-plugin ID`.
+- See installed and available plugins with `--list-plugins`.
+
+For a complete guide to writing, installing, and publishing plugins, see the [Plugins](https://github.com/ApexMarkdown/apex/wiki/Plugins) page in the Apex Wiki.
 
 ## Installation
 

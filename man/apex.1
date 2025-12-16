@@ -159,6 +159,22 @@ Obfuscate email links and text using HTML entities (hex\-encoded).
 \f[B]\[en]plugins\f[R], \f[B]\[en]no\-plugins\f[R]
 Enable or disable external/plugin processing.
 Plugins are disabled by default; use \f[B]\[en]plugins\f[R] to enable them.
+.TP
+\f[B]\[en]list\-plugins\f[R]
+List installed plugins and available plugins from the central directory.
+Shows installed plugins first, then plugins available from the remote JSON
+directory that are not already installed.
+.TP
+\f[B]\[en]install\-plugin\f[R] \f[I]ID\f[R]
+Install a plugin with the given ID from the central directory.
+The plugin repository is cloned into the user plugin directory, and any
+optional \f[CR]post_install\f[R] hook defined in \f[CR]plugin.yml\f[R]
+is executed after cloning.
+.TP
+\f[B]\[en]uninstall\-plugin\f[R] \f[I]ID\f[R]
+Uninstall a locally installed plugin by ID.
+Removes the plugin directory from the user plugin path after confirmation,
+but does not touch plugin support data.
 .SS Image Embedding
 .TP
 \f[B]\[en]embed\-images\f[R]
