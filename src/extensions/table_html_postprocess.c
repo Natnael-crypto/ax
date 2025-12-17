@@ -235,7 +235,7 @@ char *apex_inject_table_attributes(const char *html, cmark_node *document) {
         }
         /* Track table structure (BEFORE cell processing so indices are correct) */
         /* Also fix missing space in table tag (e.g., <tableid= -> <table id=) */
-        if (strncmp(read, "<table", 6) == 0 && (read[6] == '>' || read[6] == ' ' || read[6] == 'i' || isalnum((unsigned char)read[6]))) {
+        if (strncmp(read, "<table", 6) == 0 && (read[6] == '>' || read[6] == ' ' || (read[6] == 'i' && strncmp(read + 6, "id=", 3) == 0) || isalnum((unsigned char)read[6]))) {
             /* Fix missing space before id or class attributes */
             if (read[6] == 'i' && strncmp(read + 6, "id=", 3) == 0) {
                 /* Write "<table " then copy the rest of the tag */
@@ -253,6 +253,10 @@ char *apex_inject_table_attributes(const char *html, cmark_node *document) {
                     *write++ = *read++;
                     written++;
                 }
+                /* Set table tracking variables even when fixing spacing */
+                in_table = true;
+                table_idx++; /* New table */
+                row_idx = -1; /* Reset for each new table */
                 continue; /* Skip the normal copy below, we've handled it */
             }
             in_table = true;
