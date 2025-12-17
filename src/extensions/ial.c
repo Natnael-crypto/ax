@@ -1057,7 +1057,8 @@ char *apex_preprocess_ial(const char *text) {
 
 /**
  * URL encode a string (percent encoding)
- * Only encodes characters that need encoding (space, non-ASCII, etc.)
+ * Only encodes unsafe characters (space, control chars, non-ASCII, etc.)
+ * Preserves valid URL characters like /, :, ?, #, etc.
  * Returns newly allocated string, caller must free
  */
 static char *url_encode(const char *url) {
@@ -1072,19 +1073,21 @@ static char *url_encode(const char *url) {
     char *out = encoded;
     for (const char *p = url; *p; p++) {
         unsigned char c = (unsigned char)*p;
-        /* Characters that don't need encoding */
+        /* Unreserved characters (always safe): A-Z, a-z, 0-9, -, _, ., ~ */
+        /* Reserved characters that are safe in URL paths: /, :, ?, #, [, ], @, !, $, &, ', (, ), *, +, ,, ;, = */
+        /* Also preserve % if it's part of already-encoded content */
         if ((c >= 'A' && c <= 'Z') ||
             (c >= 'a' && c <= 'z') ||
             (c >= '0' && c <= '9') ||
-            c == '-' || c == '_' || c == '.' || c == '/' ||
-            c == ':' || c == '?' || c == '#' || c == '[' ||
-            c == ']' || c == '@' || c == '!' || c == '$' ||
-            c == '&' || c == '\'' || c == '(' || c == ')' ||
-            c == '*' || c == '+' || c == ',' || c == ';' ||
-            c == '=' || c == '%') {
+            c == '-' || c == '_' || c == '.' || c == '~' ||
+            c == '/' || c == ':' || c == '?' || c == '#' ||
+            c == '[' || c == ']' || c == '@' || c == '!' ||
+            c == '$' || c == '&' || c == '\'' || c == '(' ||
+            c == ')' || c == '*' || c == '+' || c == ',' ||
+            c == ';' || c == '=' || c == '%') {
             *out++ = c;
         } else {
-            /* Encode as %XX */
+            /* Encode unsafe characters: space, control chars, non-ASCII, etc. */
             snprintf(out, 4, "%%%02X", c);
             out += 3;
         }
@@ -1381,6 +1384,7 @@ char *apex_preprocess_image_attributes(const char *text, image_attr_entry **img_
                 const char *paren_end = NULL;
 
                 /* Find the closing paren first */
+                p = url_start;
                 while (*p && *p != ')' && *p != '\n') p++;
                 if (*p == ')') {
                     paren_end = p;
@@ -1390,26 +1394,46 @@ char *apex_preprocess_image_attributes(const char *text, image_attr_entry **img_
                     continue;
                 }
 
-                /* Scan forward from url_start looking for attribute patterns */
-                /* Attributes typically start with a space followed by key=value */
+                /* Scan forward from url_start looking for:
+                 * 1. Titles: quoted string ("title" or 'title') or parentheses (title)
+                 * 2. Attributes: key=value pattern (for images)
+                 * URL should end before whichever comes first
+                 */
                 p = url_start;
                 while (p < paren_end) {
                     if (*p == ' ' || *p == '\t') {
-                        /* Found a space - check if what follows looks like attributes */
+                        /* Found a space - check what follows */
                         const char *after_space = p;
                         while (after_space < paren_end && (*after_space == ' ' || *after_space == '\t')) after_space++;
 
-                        if (after_space < paren_end && looks_like_attribute_start(after_space, paren_end)) {
-                            /* This looks like the start of attributes */
-                            attr_start = after_space;
-                            url_end = p; /* URL ends before this space */
-                            break;
+                        if (after_space < paren_end) {
+                            /* Check if it's a quoted title */
+                            if (*after_space == '"' || *after_space == '\'') {
+                                /* Found a title - URL ends before this space */
+                                url_end = p;
+                                break;
+                            }
+
+                            /* Check if it's a parentheses title: space followed by '(' */
+                            if (*after_space == '(') {
+                                /* This is a title in parentheses - URL ends before the space */
+                                url_end = p;
+                                break;
+                            }
+
+                            /* Check if it's attributes (for images) */
+                            if (do_image_attrs && looks_like_attribute_start(after_space, paren_end)) {
+                                /* This looks like the start of attributes */
+                                attr_start = after_space;
+                                url_end = p; /* URL ends before this space */
+                                break;
+                            }
                         }
                     }
                     p++;
                 }
 
-                /* If no attributes found, URL goes to closing paren */
+                /* If no title or attributes found, URL goes to closing paren */
                 if (!url_end) {
                     url_end = paren_end;
                 }
@@ -1494,12 +1518,40 @@ char *apex_preprocess_image_attributes(const char *text, image_attr_entry **img_
                                 remaining -= encoded_len;
                             }
 
-                            /* Write closing ) - attributes are NOT written back, they're stored separately */
-                            if (remaining > 0) {
+                            /* Write the rest (title if present, but NOT attributes for images - they're stored separately) */
+                            const char *rest_start = url_end;
+                            while (rest_start < paren_end) {
+                                if (remaining > 0) {
+                                    *write++ = *rest_start++;
+                                    remaining--;
+                                } else {
+                                    /* Buffer too small, need to expand */
+                                    size_t written = write - output;
+                                    size_t rest_len = paren_end - rest_start;
+                                    capacity = (written + rest_len + 1) * 2;
+                                    char *new_output = realloc(output, capacity);
+                                    if (!new_output) {
+                                        free(output);
+                                        free(url);
+                                        free(encoded_url);
+                                        if (attrs) apex_free_attributes(attrs);
+                                        apex_free_image_attributes(local_img_attrs);
+                                        return NULL;
+                                    }
+                                    output = new_output;
+                                    write = output + written;
+                                    remaining = capacity - written;
+                                }
+                            }
+
+                            /* Write closing ) */
+                            if (remaining > 0 && paren_end && *paren_end == ')') {
                                 *write++ = ')';
                                 remaining--;
+                                read = paren_end + 1;
+                            } else {
+                                read = paren_end;
                             }
-                            read = paren_end + 1;
                             free(encoded_url);
                             if (attrs) apex_free_attributes(attrs);
                         }
@@ -1547,28 +1599,46 @@ char *apex_preprocess_image_attributes(const char *text, image_attr_entry **img_
                 const char *line_end = p;
                 while (*line_end && *line_end != '\n' && *line_end != '\r') line_end++;
 
-                /* Look for attributes by scanning backwards from end or looking for key= pattern */
-                /* We need to distinguish between spaces in URL vs spaces before attributes */
-                if (do_image_attrs) {
-                    /* Scan forward to find where attributes start (look for key= pattern) */
-                    p = url_start;
-                    while (p < line_end) {
-                        if (*p == ' ' || *p == '\t') {
-                            const char *after_space = p;
-                            while (after_space < line_end && (*after_space == ' ' || *after_space == '\t')) after_space++;
-                            if (after_space < line_end && looks_like_attribute_start(after_space, line_end)) {
+                /* For reference definitions, we need to check for:
+                 * 1. Image attributes (if do_image_attrs): key=value pattern
+                 * 2. Title: quoted string ("title" or 'title')
+                 * We should stop at whichever comes first (attributes or title)
+                 */
+                p = url_start;
+                while (p < line_end) {
+                    if (*p == ' ' || *p == '\t') {
+                        const char *after_space = p;
+                        while (after_space < line_end && (*after_space == ' ' || *after_space == '\t')) after_space++;
+
+                        if (after_space < line_end) {
+                            /* Check if it's a quoted title */
+                            if (*after_space == '"' || *after_space == '\'') {
+                                /* Found a title - URL ends before this space */
+                                url_end = p;
+                                break;
+                            }
+
+                            /* Check if it's a parentheses title: space followed by '(' */
+                            if (*after_space == '(') {
+                                /* This is a title in parentheses - URL ends before the space */
+                                url_end = p;
+                                break;
+                            }
+
+                            /* Check if it's attributes (for images) */
+                            if (do_image_attrs && looks_like_attribute_start(after_space, line_end)) {
                                 /* This looks like attributes */
                                 attr_start = after_space;
                                 url_end = p;
                                 break;
                             }
                         }
-                        p++;
                     }
+                    p++;
                 }
 
                 if (!url_end) {
-                    url_end = line_end; /* URL ends at newline (no attributes found) */
+                    url_end = line_end; /* URL ends at newline (no title or attributes found) */
                 }
 
                 if (url_end > url_start) {
@@ -1616,68 +1686,113 @@ char *apex_preprocess_image_attributes(const char *text, image_attr_entry **img_
                                     }
                                 }
                             }
-                            /* Free ref_name after storing (entry duplicates it) */
-                            free(ref_name);
+                            /* If this reference definition has attributes, we'll remove it from output */
+                            /* (attributes are stored and will be applied via expansion) */
+                            /* If it doesn't have attributes, we need to write it back so cmark can resolve it */
+                            bool should_remove = (attrs && do_image_attrs);
 
-                            /* Write the reference up to URL */
-                            size_t prefix_len = url_start - ref_start;
-                            if (prefix_len < remaining) {
-                                memcpy(write, ref_start, prefix_len);
-                                write += prefix_len;
-                                remaining -= prefix_len;
-                            }
-
-                            /* Write encoded URL */
-                            size_t encoded_len = strlen(encoded_url);
-                            if (encoded_len < remaining) {
-                                memcpy(write, encoded_url, encoded_len);
-                                write += encoded_len;
-                                remaining -= encoded_len;
-                            } else {
-                                size_t written = write - output;
-                                capacity = (written + encoded_len + 1) * 2;
-                                char *new_output = realloc(output, capacity);
-                                if (!new_output) {
-                                    free(output);
-                                    free(url);
-                                    free(encoded_url);
-                                    if (attrs) apex_free_attributes(attrs);
-                                    apex_free_image_attributes(local_img_attrs);
-                                    return NULL;
+                            if (should_remove) {
+                                /* Reference definitions with attributes are removed from output (like ALDs) */
+                                /* Skip the entire line - don't write anything back */
+                                free(ref_name);
+                                const char *p = line_end;
+                                /* Skip the newline */
+                                if (*p == '\n') {
+                                    p++;
+                                } else if (*p == '\r') {
+                                    if (p[1] == '\n') {
+                                        p += 2;
+                                    } else {
+                                        p++;
+                                    }
                                 }
-                                output = new_output;
-                                write = output + written;
-                                remaining = capacity - written;
-                                memcpy(write, encoded_url, encoded_len);
-                                write += encoded_len;
-                                remaining -= encoded_len;
-                            }
+                                read = p;
+                            } else {
+                                /* Write back the reference definition with encoded URL (so cmark can resolve it) */
+                                /* Write the reference up to URL */
+                                size_t prefix_len = url_start - ref_start;
+                                if (prefix_len < remaining) {
+                                    memcpy(write, ref_start, prefix_len);
+                                    write += prefix_len;
+                                    remaining -= prefix_len;
+                                }
 
-                            /* For reference definitions with attributes, DON'T write attributes back */
-                            /* We'll expand reference-style images instead */
-                            /* Skip to end of line */
-                            while (*p && *p != '\n' && *p != '\r') p++;
+                                /* Write encoded URL */
+                                size_t encoded_len = strlen(encoded_url);
+                                if (encoded_len < remaining) {
+                                    memcpy(write, encoded_url, encoded_len);
+                                    write += encoded_len;
+                                    remaining -= encoded_len;
+                                } else {
+                                    size_t written = write - output;
+                                    capacity = (written + encoded_len + 1) * 2;
+                                    char *new_output = realloc(output, capacity);
+                                    if (!new_output) {
+                                        free(output);
+                                        free(url);
+                                        free(encoded_url);
+                                        free(ref_name);
+                                        if (attrs) apex_free_attributes(attrs);
+                                        apex_free_image_attributes(local_img_attrs);
+                                        return NULL;
+                                    }
+                                    output = new_output;
+                                    write = output + written;
+                                    remaining = capacity - written;
+                                    memcpy(write, encoded_url, encoded_len);
+                                    write += encoded_len;
+                                    remaining -= encoded_len;
+                                }
 
-                            /* Copy newline */
-                            if (*p == '\n' && remaining > 0) {
-                                *write++ = *p++;
-                                remaining--;
-                            } else if (*p == '\n') {
-                                p++;
-                            } else if (*p == '\r') {
-                                if (p[1] == '\n' && remaining >= 2) {
-                                    *write++ = *p++;
-                                    *write++ = *p++;
-                                    remaining -= 2;
-                                } else if (remaining > 0) {
+                                /* Write the rest (title if present) */
+                                const char *rest_start = url_end;
+                                while (rest_start < line_end) {
+                                    if (remaining > 0) {
+                                        *write++ = *rest_start++;
+                                        remaining--;
+                                    } else {
+                                        size_t written = write - output;
+                                        size_t rest_len = line_end - rest_start;
+                                        capacity = (written + rest_len + 1) * 2;
+                                        char *new_output = realloc(output, capacity);
+                                        if (!new_output) {
+                                            free(output);
+                                            free(url);
+                                            free(encoded_url);
+                                            free(ref_name);
+                                            if (attrs) apex_free_attributes(attrs);
+                                            apex_free_image_attributes(local_img_attrs);
+                                            return NULL;
+                                        }
+                                        output = new_output;
+                                        write = output + written;
+                                        remaining = capacity - written;
+                                    }
+                                }
+
+                                /* Write newline */
+                                const char *p = line_end;
+                                if (*p == '\n' && remaining > 0) {
                                     *write++ = *p++;
                                     remaining--;
-                                } else {
+                                } else if (*p == '\n') {
                                     p++;
+                                } else if (*p == '\r') {
+                                    if (p[1] == '\n' && remaining >= 2) {
+                                        *write++ = *p++;
+                                        *write++ = *p++;
+                                        remaining -= 2;
+                                    } else if (remaining > 0) {
+                                        *write++ = *p++;
+                                        remaining--;
+                                    } else {
+                                        p++;
+                                    }
                                 }
-                            }
 
-                            read = p;
+                                read = p;
+                                free(ref_name);
+                            }
                             free(encoded_url);
                             if (attrs) apex_free_attributes(attrs);
                         }
@@ -1688,7 +1803,7 @@ char *apex_preprocess_image_attributes(const char *text, image_attr_entry **img_
             }
         }
 
-        /* Look for regular links: [text](url) - just URL encode */
+        /* Look for regular links: [text](url) or [text](url "title") - URL encode only the URL */
         if (*read == '[' && (read == text || read[-1] != '!')) {
             const char *link_start = read;
             const char *link_text_end = strchr(link_start, ']');
@@ -1697,17 +1812,47 @@ char *apex_preprocess_image_attributes(const char *text, image_attr_entry **img_
                 const char *url_start = link_text_end + 2; /* After ]( */
                 const char *p = url_start;
                 const char *url_end = NULL;
+                const char *paren_end = NULL;
 
-                /* Find URL end - for regular links, URL goes to closing ) */
-                /* Regular links don't have attributes, so URL includes spaces until ) */
-                while (*p && *p != ')' && *p != '\n') {
+                /* Find the closing paren first */
+                while (*p && *p != ')' && *p != '\n') p++;
+                if (*p == ')') {
+                    paren_end = p;
+                } else {
+                    paren_end = p; /* End at newline or end of string */
+                }
+
+                /* Scan forward looking for titles: "title", 'title', or (title) */
+                /* Key insight: (title) has a space before the '(', while URL parentheses don't */
+                p = url_start;
+                while (p < paren_end) {
+                    if (*p == ' ' || *p == '\t') {
+                        /* Found a space - check what follows */
+                        const char *after_space = p;
+                        while (after_space < paren_end && (*after_space == ' ' || *after_space == '\t')) after_space++;
+
+                        if (after_space < paren_end) {
+                            /* Check if it's a quoted title */
+                            if (*after_space == '"' || *after_space == '\'') {
+                                /* Found a title - URL ends before this space */
+                                url_end = p;
+                                break;
+                            }
+
+                            /* Check if it's a parentheses title: space followed by '(' */
+                            if (*after_space == '(') {
+                                /* This is a title in parentheses - URL ends before the space */
+                                url_end = p;
+                                break;
+                            }
+                        }
+                    }
                     p++;
                 }
 
-                if (*p == ')') {
-                    url_end = p;
-                } else {
-                    url_end = p; /* End at newline or end of string */
+                /* If no title found, URL goes to closing paren */
+                if (!url_end) {
+                    url_end = paren_end;
                 }
 
                 if (url_end > url_start) {
@@ -1754,21 +1899,41 @@ char *apex_preprocess_image_attributes(const char *text, image_attr_entry **img_
                                 remaining -= encoded_len;
                             }
 
-                            /* Write rest of link (space, closing paren, etc.) */
-                            while (p < url_start + url_len + 100 && *p && *p != '\n') {
-                                if (*p == ')') {
-                                    if (remaining > 0) {
-                                        *write++ = *p++;
-                                        remaining--;
-                                    } else {
-                                        p++;
+                            /* Write the rest (title if present) */
+                            const char *rest_start = url_end;
+                            while (rest_start < paren_end) {
+                                if (remaining > 0) {
+                                    *write++ = *rest_start++;
+                                    remaining--;
+                                } else {
+                                    /* Buffer too small, need to expand */
+                                    size_t written = write - output;
+                                    size_t rest_len = paren_end - rest_start;
+                                    capacity = (written + rest_len + 1) * 2;
+                                    char *new_output = realloc(output, capacity);
+                                    if (!new_output) {
+                                        free(output);
+                                        free(url);
+                                        free(encoded_url);
+                                        apex_free_image_attributes(local_img_attrs);
+                                        return NULL;
                                     }
-                                    break;
+                                    output = new_output;
+                                    write = output + written;
+                                    remaining = capacity - written;
                                 }
-                                p++;
                             }
 
-                            read = p;
+                            /* Write closing paren */
+                            if (remaining > 0 && paren_end && *paren_end == ')') {
+                                *write++ = ')';
+                                remaining--;
+                                read = paren_end + 1;
+                            } else if (paren_end) {
+                                read = paren_end;
+                            } else {
+                                read = p;
+                            }
                             free(encoded_url);
                         }
                         free(url);

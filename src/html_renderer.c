@@ -451,6 +451,7 @@ char *apex_render_html_with_attributes(cmark_node *document, int options) {
 
                             /* Copy up to injection point (but for self-closing tags, don't include the space before /) */
                             size_t prefix_len;
+                            bool needs_space_before_attrs = false;
                             if (is_self_closing && inject_point > read && inject_point[-1] == ' ') {
                                 /* Don't copy the space before / - we'll add it back after attributes */
                                 prefix_len = inject_point - read - 1;
@@ -464,12 +465,12 @@ char *apex_render_html_with_attributes(cmark_node *document, int options) {
                                 remaining -= prefix_len;
                             }
 
-                            /* Add space before attributes if needed (unless we're right before > or /) */
-                            if (*inject_point != '>' && *inject_point != '/') {
-                                if (remaining > 0) {
-                                    *write++ = ' ';
-                                    remaining--;
-                                }
+                            /* Always add a space before attributes (they need to be separated from existing attributes) */
+                            /* The only exception is if inject_point is at > and there's already a space before it */
+                            /* But since we're injecting attributes, we always need a space before them */
+                            if (remaining > 0) {
+                                *write++ = ' ';
+                                remaining--;
                             }
 
                             /* Inject attributes */
