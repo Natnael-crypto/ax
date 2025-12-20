@@ -189,17 +189,24 @@ static void process_table_spans(cmark_node *table) {
 
             /* Check if this row is a tfoot row (contains ===) */
             /* Once we encounter a tfoot row, all subsequent rows are in tfoot */
-            if (is_tfoot_row(row) || in_tfoot_section) {
-                if (is_tfoot_row(row)) {
-                    in_tfoot_section = true;
-                }
-                /* Mark this row as tfoot (either because it contains === or it's after a === row) */
+            if (is_tfoot_row(row)) {
+                /* This is the === row itself - mark it as tfoot and set flag */
+                in_tfoot_section = true;
                 char *existing = (char *)cmark_node_get_user_data(row);
                 if (existing) free(existing);
                 cmark_node_set_user_data(row, strdup(" data-tfoot=\"true\""));
+            } else if (in_tfoot_section) {
+                /* We've already encountered the === row, so mark this row as tfoot */
+                char *existing = (char *)cmark_node_get_user_data(row);
+                if (existing) free(existing);
+                cmark_node_set_user_data(row, strdup(" data-tfoot=\"true\""));
+            }
+
+            /* If this row is a tfoot row (either === or after ===), process it */
+            if (is_tfoot_row(row) || in_tfoot_section) {
 
                 /* Mark === cells for removal (they'll be rendered as empty cells) */
-                /* Only do this if this row actually contains === */
+                /* Only do this if this row actually contains === (the === row itself) */
                 if (is_tfoot_row(row)) {
                     cmark_node *cell = cmark_node_first_child(row);
                 while (cell) {

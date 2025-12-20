@@ -25,20 +25,28 @@ Use `^^` to merge cells vertically (rowspan):
 ---
 
 
-| Department  | Employee | Q1-Q2 Average | Q3  | Q4  | Overall |
-| ----------- | -------- | ------------- | --- | --- | ------- |
-| Engineering | Alice    | 93.5          | 94  | 96  | 94.25   |
-| ===         | ====     |               |     |     |         |
-| testing     | test 2   |               |     |     |         |
+| Department  | Employee | Q1-Q2 Average | Q3      | Q4      | Overall   |
+| ----------- | -------- | ------------- | ------- | ------- | --------- |
+| Engineering | Alice    | 93.5          | 94      | 96      | 94.25     |
+| Foogling    | Jake     | 60.3          | 20      | 20      | 30.1      |
+| boggling | 24 |||||
+| =====       | =======  | =========     | =====   | ======= | ========= |
+| footer      | row      | with          | colspan |||
+
+[colspans]
+| header |||
+| ---- | ---- | ---- |
+| data | data | data |
+| ==== | === | === |
+| footer |||
 
 
-
-| h1  | h2  | h3  |
-| --- | :-: | --- |
-| d1  | d2  | d3  |
-| d1  | d2  | d3  |
-| === | === | === |
-| d-4 | d-5 | d-6 |
+| h1  |  h2   | h3  |
+| --- | :---: | --- |
+| d1  |  d2   | d3  |
+| d1  |  d2   | d3  |
+| === |  ===  | === |
+| d-4 |  d-5  | d-6 |
 [table with footer]
 
 | h1  | h2 asdfasdf asdf | h3  |
@@ -50,12 +58,12 @@ Table: Table with Pandoc caption
 
 
 | ----: | :-----: | :----- |
-| a---a | b-----b | c----c |
+| aa | bb | cc |
 | 1     | 2       | 3      |
 
 Table: Table without header row
 
 [Relaxed table]
 | a      | b      | c      |
-| 1----d | 2----b | 3----c |
+| 1d | 2b | 3c |
 | data 1 | data 2 | data 3 |
