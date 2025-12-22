@@ -398,14 +398,6 @@ static void process_table_spans(cmark_node *table) {
                          * Otherwise, find the cell in the previous row and make it active. */
                         cmark_node *target_cell = active_rowspan[col_index];
 
-                        /* Debug: log rowspan marker and current row/column */
-                        cmark_node *rs_child = cmark_node_first_child(cell);
-                        const char *rs_text = rs_child && cmark_node_get_type(rs_child) == CMARK_NODE_TEXT
-                                              ? cmark_node_get_literal(rs_child)
-                                              : NULL;
-                        fprintf(stderr, "DEBUG RS: marker at row=%d col=%d text=\"%s\"\n",
-                                row_index, col_index, rs_text ? rs_text : "(null)");
-
                         /* If no active cell, find one in the previous row */
                         if (!target_cell && prev_row) {
                             cmark_node *candidate = cmark_node_first_child(prev_row);
@@ -452,13 +444,6 @@ static void process_table_spans(cmark_node *table) {
                             if (prev_attrs) free(prev_attrs);
                             cmark_node_set_user_data(target_cell, strdup(new_attrs));
 
-                            /* Debug: log target cell for rowspan */
-                            cmark_node *t_child = cmark_node_first_child(target_cell);
-                            const char *t_text = t_child && cmark_node_get_type(t_child) == CMARK_NODE_TEXT
-                                                 ? cmark_node_get_literal(t_child)
-                                                 : NULL;
-                            fprintf(stderr, "DEBUG RS: applying rowspan to row=%d col=%d text=\"%s\" new_rowspan=%d\n",
-                                    row_index - 1, col_index, t_text ? t_text : "(null)", current_rowspan + 1);
                         }
                         /* Always mark rowspan cell for removal, even if target not found */
                         char *existing = (char *)cmark_node_get_user_data(cell);

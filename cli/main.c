@@ -4,9 +4,11 @@
 
 #include "../include/apex/apex.h"
 #include "../src/extensions/metadata.h"
+#include "../src/extensions/includes.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <stdbool.h>
 #include <unistd.h>
 #include <libgen.h>
@@ -54,7 +56,8 @@ static bool profiling_enabled(void) {
 static void print_usage(const char *program_name) {
     fprintf(stderr, "Apex Markdown Processor v%s\n", apex_version_string());
     fprintf(stderr, "One Markdown processor to rule them all\n\n");
-    fprintf(stderr, "Usage: %s [options] [file]\n\n", program_name);
+    fprintf(stderr, "Usage: %s [options] [file]\n", program_name);
+    fprintf(stderr, "       %s --combine [files...]\n\n", program_name);
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  --accept               Accept all Critic Markup changes (apply edits)\n");
     fprintf(stderr, "  --[no-]includes        Enable file inclusion (enabled by default in unified mode)\n");
@@ -106,7 +109,10 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "  --script VALUE         Inject <script> tags before </body> (standalone) or at end of HTML (snippet).\n");
     fprintf(stderr, "                          VALUE can be a path, URL, or shorthand (mermaid, mathjax, katex). Can be used multiple times or as a comma-separated list.\n");
     fprintf(stderr, "  --title TITLE          Document title (requires --standalone, default: \"Document\")\n");
-    fprintf(stderr, "  -v, --version          Show version information\n\n");
+    fprintf(stderr, "  -v, --version          Show version information\n");
+    fprintf(stderr, "  --combine              Concatenate Markdown files (expanding includes) into a single Markdown stream\n");
+    fprintf(stderr, "                         When a SUMMARY.md file is provided, treat it as a GitBook index and combine\n");
+    fprintf(stderr, "                         the linked files in order. Output is raw Markdown suitable for piping back into Apex.\n\n");
     fprintf(stderr, "If no file is specified, reads from stdin.\n");
 }
 
@@ -325,6 +331,192 @@ static char *read_stdin(size_t *len) {
     return buffer;
 }
 
+/**
+ * Helper: get directory component of a path (malloc'd).
+ */
+static char *apex_cli_get_directory(const char *filepath) {
+    if (!filepath || !*filepath) {
+        char *dot = malloc(2);
+        if (dot) {
+            dot[0] = '.';
+            dot[1] = '\0';
+        }
+        return dot;
+    }
+
+    char *copy = strdup(filepath);
+    if (!copy) {
+        return NULL;
+    }
+    char *dir = dirname(copy);
+    char *result = dir ? strdup(dir) : NULL;
+    free(copy);
+    if (!result) {
+        char *dot = malloc(2);
+        if (dot) {
+            dot[0] = '.';
+            dot[1] = '\0';
+        }
+        return dot;
+    }
+    return result;
+}
+
+/**
+ * Process a single Markdown file:
+ * - Read content
+ * - Extract metadata (for transclude base)
+ * - Run apex_process_includes
+ * Returns newly allocated string or NULL on error.
+ */
+static char *apex_cli_combine_process_file(const char *filepath) {
+    if (!filepath) return NULL;
+
+    size_t len = 0;
+    char *markdown = read_file(filepath, &len);
+    if (!markdown) {
+        return NULL;
+    }
+
+    /* Extract metadata in a copy so we don't modify the original text,
+     * preserving verbatim Markdown while still honoring transclude base.
+     */
+    apex_metadata_item *doc_metadata = NULL;
+    char *doc_copy = malloc(len + 1);
+    if (doc_copy) {
+        memcpy(doc_copy, markdown, len);
+        doc_copy[len] = '\0';
+        char *ptr = doc_copy;
+        doc_metadata = apex_extract_metadata(&ptr);
+    }
+
+    char *base_dir = apex_cli_get_directory(filepath);
+    char *processed = apex_process_includes(markdown, base_dir, doc_metadata, 0);
+
+    if (doc_metadata) {
+        apex_free_metadata(doc_metadata);
+    }
+    if (doc_copy) {
+        free(doc_copy);
+    }
+    if (base_dir) {
+        free(base_dir);
+    }
+    free(markdown);
+
+    return processed ? processed : NULL;
+}
+
+/**
+ * Append a chunk of Markdown to an output stream, ensuring separation
+ * between documents.
+ */
+static void apex_cli_write_combined_chunk(FILE *out, const char *chunk, bool *needs_separator) {
+    if (!out || !chunk) return;
+
+    if (*needs_separator) {
+        /* Ensure at least one blank line between documents */
+        fputc('\n', out);
+        fputc('\n', out);
+    }
+
+    fputs(chunk, out);
+    *needs_separator = true;
+}
+
+/**
+ * Parse a GitBook-style SUMMARY.md and write the combined Markdown
+ * for all linked files in order.
+ *
+ * Returns 0 on success, non-zero on error.
+ */
+static int apex_cli_combine_from_summary(const char *summary_path, FILE *out) {
+    size_t len = 0;
+    char *summary = read_file(summary_path, &len);
+    if (!summary) {
+        fprintf(stderr, "Error: Cannot read SUMMARY file '%s'\n", summary_path);
+        return 1;
+    }
+
+    char *base_dir = apex_cli_get_directory(summary_path);
+    bool needs_separator = false;
+
+    char *cursor = summary;
+    while (*cursor) {
+        char *line_start = cursor;
+        char *line_end = strchr(cursor, '\n');
+        if (!line_end) {
+            line_end = cursor + strlen(cursor);
+        }
+
+        /* Look for [Title](path) pattern on this line */
+        const char *lb = memchr(line_start, '[', (size_t)(line_end - line_start));
+        const char *rb = NULL;
+        const char *lp = NULL;
+        const char *rp = NULL;
+
+        if (lb) {
+            rb = memchr(lb, ']', (size_t)(line_end - lb));
+            if (rb && (rb + 1) < line_end && rb[1] == '(') {
+                lp = rb + 2;
+                rp = memchr(lp, ')', (size_t)(line_end - lp));
+            }
+        }
+
+        if (lp && rp && rp > lp) {
+            size_t path_len = (size_t)(rp - lp);
+            char *rel_path = malloc(path_len + 1);
+            if (rel_path) {
+                memcpy(rel_path, lp, path_len);
+                rel_path[path_len] = '\0';
+
+                /* Trim whitespace */
+                char *p = rel_path;
+                while (*p == ' ' || *p == '\t') p++;
+                char *start = p;
+                char *end = start + strlen(start);
+                while (end > start && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r')) {
+                    end--;
+                }
+                *end = '\0';
+
+                if (*start) {
+                    /* Strip anchor (#section) if present */
+                    char *hash = strchr(start, '#');
+                    if (hash) {
+                        *hash = '\0';
+                    }
+
+                    /* Skip external links (with scheme) */
+                    if (!strstr(start, "://")) {
+                        size_t full_len = strlen(base_dir ? base_dir : ".") + strlen(start) + 2;
+                        char *full_path = malloc(full_len);
+                        if (full_path) {
+                            snprintf(full_path, full_len, "%s/%s", base_dir ? base_dir : ".", start);
+                            char *processed = apex_cli_combine_process_file(full_path);
+                            if (processed) {
+                                apex_cli_write_combined_chunk(out, processed, &needs_separator);
+                                free(processed);
+                            } else {
+                                fprintf(stderr, "Warning: Skipping unreadable file '%s' from SUMMARY\n", full_path);
+                            }
+                            free(full_path);
+                        }
+                    }
+                }
+
+                free(rel_path);
+            }
+        }
+
+        cursor = (*line_end == '\n') ? line_end + 1 : line_end;
+    }
+
+    free(summary);
+    if (base_dir) free(base_dir);
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     apex_options options = apex_options_default();
     bool plugins_cli_override = false;
@@ -338,6 +530,12 @@ int main(int argc, char *argv[]) {
     apex_metadata_item *cmdline_metadata = NULL;
     char *allocated_base_dir = NULL;      /* Track if we allocated base_directory */
     char *allocated_input_file_path = NULL;  /* Track if we allocate input_file_path */
+
+    /* Combine mode: concatenate Markdown files (with includes expanded) */
+    bool combine_mode = false;
+    char **combine_files = NULL;
+    size_t combine_file_count = 0;
+    size_t combine_file_capacity = 0;
 
     /* Bibliography files (NULL-terminated array) */
     char **bibliography_files = NULL;
@@ -722,14 +920,37 @@ int main(int argc, char *argv[]) {
                     cmdline_metadata = new_meta;
                 }
             }
+        } else if (strcmp(argv[i], "--combine") == 0) {
+            combine_mode = true;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
             print_usage(argv[0]);
             return 1;
         } else {
-            /* Assume it's the input file */
-            input_file = argv[i];
+            /* Positional argument: input file(s) */
+            if (combine_mode) {
+                if (combine_file_count >= combine_file_capacity) {
+                    size_t new_cap = combine_file_capacity ? combine_file_capacity * 2 : 8;
+                    char **tmp = realloc(combine_files, new_cap * sizeof(char *));
+                    if (!tmp) {
+                        fprintf(stderr, "Error: Memory allocation failed\n");
+                        return 1;
+                    }
+                    combine_files = tmp;
+                    combine_file_capacity = new_cap;
+                }
+                combine_files[combine_file_count++] = argv[i];
+            } else {
+                /* Single-file mode: last positional wins (for compatibility) */
+                input_file = argv[i];
+            }
         }
+    }
+
+    /* If --combine was provided but no files, error out early */
+    if (combine_mode && combine_file_count == 0) {
+        fprintf(stderr, "Error: --combine requires at least one input file\n");
+        return 1;
     }
 
     /* If no explicit --meta-file was provided, look for a default config:
@@ -1176,6 +1397,60 @@ int main(int argc, char *argv[]) {
             apex_remote_free_plugins(plist);
             return 0;
         }
+    }
+
+    /* Combine mode: concatenate Markdown files (with includes expanded) and exit */
+    if (combine_mode) {
+        FILE *out = stdout;
+        if (output_file) {
+            out = fopen(output_file, "w");
+            if (!out) {
+                fprintf(stderr, "Error: Cannot open output file '%s'\n", output_file);
+                return 1;
+            }
+        }
+
+        int rc = 0;
+        bool needs_separator = false;
+
+        for (size_t i = 0; i < combine_file_count; i++) {
+            const char *path = combine_files[i];
+            if (!path) continue;
+
+            /* Detect GitBook SUMMARY.md by basename */
+            char *path_copy = strdup(path);
+            if (!path_copy) {
+                rc = 1;
+                break;
+            }
+            char *base = basename(path_copy);
+            bool is_summary = (base && strcasecmp(base, "SUMMARY.md") == 0);
+
+            if (is_summary) {
+                if (apex_cli_combine_from_summary(path, out) != 0) {
+                    rc = 1;
+                    free(path_copy);
+                    break;
+                }
+                /* SUMMARY already handles its own separation */
+                needs_separator = true;
+            } else {
+                char *processed = apex_cli_combine_process_file(path);
+                if (!processed) {
+                    fprintf(stderr, "Warning: Skipping unreadable file '%s'\n", path);
+                } else {
+                    apex_cli_write_combined_chunk(out, processed, &needs_separator);
+                    free(processed);
+                }
+            }
+
+            free(path_copy);
+        }
+
+        if (out != stdout) {
+            fclose(out);
+        }
+        return rc;
     }
 
     /* Set base_directory from input file if not already set */

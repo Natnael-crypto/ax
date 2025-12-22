@@ -5,6 +5,7 @@
 
 #include "apex/apex.h"
 #include "../src/extensions/metadata.h"
+#include "../src/extensions/includes.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -1157,6 +1158,7 @@ static void test_advanced_tables(void) {
                                 "\n| ^^ | C  |";
     html = apex_markdown_to_html(rowspan_table, strlen(rowspan_table), &opts);
     assert_contains(html, "rowspan", "Rowspan attribute added");
+    assert_contains(html, "<td rowspan=\"2\">A</td>", "Rowspan applied to first cell content");
     apex_free_string(html);
 
     /* Test colspan with empty cell */
@@ -1165,6 +1167,16 @@ static void test_advanced_tables(void) {
                                 "\n| B  | C  | D  |";
     html = apex_markdown_to_html(colspan_table, strlen(colspan_table), &opts);
     assert_contains(html, "colspan", "Colspan attribute added");
+    assert_contains(html, "<td colspan=\"2\">A</td>", "Colspan applied to first row A spanning 2 columns");
+    apex_free_string(html);
+
+    /* Test per-cell alignment using colons */
+    const char *align_table = "| h1  |  h2   | h3  |\n"
+                              "| --- | :---: | --- |\n"
+                              "| d1  |  d2   | d3  |";
+    html = apex_markdown_to_html(align_table, strlen(align_table), &opts);
+    assert_contains(html, "<th style=\"text-align:left\">h1</th>", "Left-aligned header from colon pattern");
+    assert_contains(html, "<th style=\"text-align:center\">h2</th>", "Center-aligned header from colon pattern");
     apex_free_string(html);
 
     /* Test basic table (ensure we didn't break existing functionality) */
@@ -1327,6 +1339,102 @@ static void test_relaxed_tables(void) {
         printf(COLOR_RED "✗" COLOR_RESET " Mismatched column counts incorrectly treated as table\n");
     }
     apex_free_string(html);
+}
+
+/**
+ * Test combine-like behavior for GitBook SUMMARY.md via core API
+ * (indirectly validates that include expansion and ordering work).
+ */
+static void test_combine_gitbook_like(void) {
+    printf("\n=== Combine / GitBook SUMMARY-like Tests ===\n");
+
+    apex_options opts = apex_options_default();
+    opts.enable_file_includes = true;
+
+    const char *base_dir = "tests/fixtures/combine_summary";
+
+    const char *intro_path = "tests/fixtures/combine_summary/intro.md";
+    const char *chapter_path = "tests/fixtures/combine_summary/chapter1.md";
+
+    /* Intro alone */
+    size_t intro_len = 0;
+    char *intro_src = NULL;
+    {
+        FILE *fp = fopen(intro_path, "rb");
+        if (fp) {
+            fseek(fp, 0, SEEK_END);
+            long sz = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
+            intro_src = malloc(sz + 1);
+            if (intro_src) {
+                intro_len = fread(intro_src, 1, sz, fp);
+                intro_src[intro_len] = '\0';
+            }
+            fclose(fp);
+        }
+    }
+    if (!intro_src) {
+        printf(COLOR_RED "✗" COLOR_RESET " Failed to read intro fixture for combine tests\n");
+        tests_failed++;
+        tests_run++;
+        return;
+    }
+
+    /* Process intro with includes (none here, just sanity) */
+    char *intro_md = apex_process_includes(intro_src, base_dir, NULL, 0);
+    char *intro_html = apex_markdown_to_html(intro_md ? intro_md : intro_src,
+                                             strlen(intro_md ? intro_md : intro_src),
+                                             &opts);
+    assert_contains(intro_html, "<h1>Intro</h1>", "Intro heading rendered");
+    apex_free_string(intro_html);
+    if (intro_md) free(intro_md);
+    free(intro_src);
+
+    /* Now chapter1 which includes section1_1.md via {{section1_1.md}} */
+    size_t chapter_len = 0;
+    char *chapter_src = NULL;
+    {
+        FILE *fp = fopen(chapter_path, "rb");
+        if (fp) {
+            fseek(fp, 0, SEEK_END);
+            long sz = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
+            chapter_src = malloc(sz + 1);
+            if (chapter_src) {
+                chapter_len = fread(chapter_src, 1, sz, fp);
+                chapter_src[chapter_len] = '\0';
+            }
+            fclose(fp);
+        }
+    }
+    if (!chapter_src) {
+        printf(COLOR_RED "✗" COLOR_RESET " Failed to read chapter1 fixture for combine tests\n");
+        tests_failed++;
+        tests_run++;
+        return;
+    }
+
+    char *chapter_md = apex_process_includes(chapter_src, base_dir, NULL, 0);
+    const char *chapter_final = chapter_md ? chapter_md : chapter_src;
+
+    /* Combined Markdown should contain both Chapter 1 and Section 1.1 headings */
+    if (strstr(chapter_final, "# Chapter 1") && strstr(chapter_final, "# Section 1.1")) {
+        tests_passed++;
+        tests_run++;
+        printf(COLOR_GREEN "✓" COLOR_RESET " Includes expanded for chapter1/section1_1\n");
+    } else {
+        tests_failed++;
+        tests_run++;
+        printf(COLOR_RED "✗" COLOR_RESET " Includes not expanded correctly for chapter1/section1_1\n");
+    }
+
+    char *chapter_html = apex_markdown_to_html(chapter_final, strlen(chapter_final), &opts);
+    assert_contains(chapter_html, "<h1>Chapter 1</h1>", "Chapter 1 heading rendered");
+    assert_contains(chapter_html, "<h1>Section 1.1</h1>", "Section 1.1 heading rendered from included file");
+
+    apex_free_string(chapter_html);
+    if (chapter_md) free(chapter_md);
+    free(chapter_src);
 }
 
 /**
@@ -3542,6 +3650,7 @@ int main(int argc, char *argv[]) {
     test_advanced_tables();
     test_relaxed_tables();
     test_comprehensive_table_features();
+    test_combine_gitbook_like();
 
     /* Medium-priority feature tests */
     test_callouts();

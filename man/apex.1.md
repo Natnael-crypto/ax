@@ -10,6 +10,8 @@ apex - Unified Markdown processor supporting CommonMark, GFM, MultiMarkdown, and
 
 **apex** [*options*] [*file*]
 
+**apex** --combine [*files*...]
+
 # DESCRIPTION
 
 Apex is a unified Markdown processor that combines the best features from CommonMark, GitHub Flavored Markdown (GFM), MultiMarkdown, Kramdown, and Marked. One processor to rule them all.

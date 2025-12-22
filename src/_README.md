@@ -46,6 +46,7 @@ Apex is a unified Markdown processor that combines the best features from Common
 - **Metadata control of options**: Control command-line options via metadata - set boolean flags (`indices: false`, `wikilinks: true`) and string options (`bibliography: refs.bib`, `title: My Document`, `wikilink-space: dash`, `wikilink-extension: html`) directly in document metadata for per-document configuration
 - **Table of Contents**: Automatic TOC generation with depth control using HTML (`<!--TOC-->`), MMD (`{{TOC}}` / `{{TOC:2-4}}`), and Kramdown `{:toc}` markers. Headings marked with `{:.no_toc}` are excluded from the generated TOC.
 - **File includes**: Three syntaxes (Marked `<<[file]`, MultiMarkdown `{{file}}`, iA Writer `/file`), with support for address ranges and wildcard/glob patterns such as `{{file.*}}`, `{{*.md}}`, and `{{c?de.py}}`.
+- **Markdown combiner (`--combine`)**: Concatenate one or more Markdown files into a single Markdown stream, expanding all include syntaxes. When a `SUMMARY.md` file is provided, Apex treats it as a GitBook-style index and combines the linked files in order—perfect for building books, multi-file indices, and shared tables of contents that can then be piped back into Apex for final rendering.
 - **CSV/TSV support**: Automatic table conversion from CSV and TSV files
 - **Inline Attribute Lists (IAL)**: Kramdown-style attributes `{: #id .class}`
 - **Special markers**: Page breaks (`<!--BREAK-->`), autoscroll pauses (`<!--PAUSE:N-->`), end-of-block markers
