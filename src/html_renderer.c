@@ -1778,15 +1778,111 @@ char *apex_apply_aria_labels(const char *html, cmark_node *document) {
     if (!html) return NULL;
 
     size_t html_len = strlen(html);
+
+    /* Two-pass approach: First pass collects figcaption IDs, second pass injects ARIA attributes */
+
+    /* Pass 1: Collect figcaption IDs and their positions */
+    typedef struct caption_info {
+        const char *figcaption_pos;  /* Position in HTML where figcaption starts */
+        char *caption_id;            /* ID value (allocated) */
+        const char *figure_start;    /* Position of opening <figure> tag */
+        struct caption_info *next;
+    } caption_info;
+
+    caption_info *caption_list = NULL;
+    int table_caption_counter = 0;
+
+    /* First pass: find all figcaptions in table-figures and collect their IDs */
+    const char *search = html;
+    while (*search) {
+        if (*search == '<' && strncmp(search, "<figcaption", 11) == 0) {
+            const char *cap_tag_start = search;
+            const char *cap_tag_end = strchr(search, '>');
+            if (cap_tag_end) {
+                /* Check if we're in a table-figure context */
+                const char *before_cap = search - 1;
+                bool in_table_figure = false;
+                const char *figure_start_pos = NULL;
+                while (before_cap >= html && before_cap > search - 200) {
+                    if (*before_cap == '<' && strncmp(before_cap, "<figure", 7) == 0) {
+                        const char *class_check = strstr(before_cap, "class=\"table-figure\"");
+                        if (!class_check) {
+                            class_check = strstr(before_cap, "class='table-figure'");
+                        }
+                        if (class_check && class_check < cap_tag_start) {
+                            in_table_figure = true;
+                            figure_start_pos = before_cap;
+                            break;
+                        }
+                    }
+                    before_cap--;
+                }
+
+                if (in_table_figure) {
+                    /* Check if ID already exists */
+                    const char *id_attr = strstr(cap_tag_start, "id=\"");
+                    if (!id_attr) {
+                        id_attr = strstr(cap_tag_start, "id='");
+                    }
+
+                    char *caption_id = NULL;
+                    if (id_attr && id_attr < cap_tag_end) {
+                        /* Extract existing ID */
+                        const char *id_start = id_attr + 4;
+                        const char *id_end = strchr(id_start, '"');
+                        if (!id_end) id_end = strchr(id_start, '\'');
+                        if (id_end && id_end > id_start) {
+                            size_t id_len = id_end - id_start;
+                            caption_id = malloc(id_len + 1);
+                            if (caption_id) {
+                                memcpy(caption_id, id_start, id_len);
+                                caption_id[id_len] = '\0';
+                            }
+                        }
+                    } else {
+                        /* Generate ID */
+                        table_caption_counter++;
+                        caption_id = malloc(64);
+                        if (caption_id) {
+                            snprintf(caption_id, 64, "table-caption-%d", table_caption_counter);
+                        }
+                    }
+
+                    if (caption_id) {
+                        caption_info *info = malloc(sizeof(caption_info));
+                        if (info) {
+                            info->figcaption_pos = cap_tag_start;
+                            info->caption_id = caption_id;
+                            info->figure_start = figure_start_pos;
+                            info->next = caption_list;
+                            caption_list = info;
+                        } else {
+                            free(caption_id);
+                        }
+                    }
+                }
+            }
+        }
+        search++;
+    }
+
     /* Allocate buffer with extra space for ARIA attributes */
-    size_t capacity = html_len + 2048;  /* Extra space for ARIA attributes */
+    size_t capacity = html_len + 2048 + (caption_list ? strlen(caption_list->caption_id) * 10 : 0);
     char *output = malloc(capacity + 1);
-    if (!output) return strdup(html);
+    if (!output) {
+        /* Free caption list */
+        while (caption_list) {
+            caption_info *next = caption_list->next;
+            free(caption_list->caption_id);
+            free(caption_list);
+            caption_list = next;
+        }
+        return strdup(html);
+    }
 
     const char *read = html;
     char *write = output;
     size_t remaining = capacity;
-    int table_caption_counter = 0;
 
     /* Helper macro to append strings safely */
     #define APPEND_SAFE(str) do { \
@@ -1905,37 +2001,35 @@ char *apex_apply_aria_labels(const char *html, cmark_node *document) {
                 before_table--;
             }
 
-            /* Look backwards for figcaption ID in the same figure */
+            /* Find figcaption ID for this table by checking caption_list */
             char *caption_id = NULL;
             if (in_table_figure && !has_aria_desc) {
-                const char *search = read - 1;
-                while (search >= html && search > read - 2000) {
-                    if (*search == '<' && strncmp(search, "<figcaption", 11) == 0) {
-                        const char *cap_tag_end = strchr(search, '>');
-                        if (cap_tag_end && cap_tag_end < tag_start) {
-                            /* Found a figcaption before this table */
-                            const char *id_attr = strstr(search, "id=\"");
-                            if (!id_attr) {
-                                id_attr = strstr(search, "id='");
-                            }
-                            if (id_attr && id_attr < cap_tag_end) {
-                                /* Extract ID */
-                                const char *id_start = id_attr + 4;
-                                const char *id_end = strchr(id_start, '"');
-                                if (!id_end) id_end = strchr(id_start, '\'');
-                                if (id_end && id_end > id_start) {
-                                    size_t id_len = id_end - id_start;
-                                    caption_id = malloc(id_len + 1);
-                                    if (caption_id) {
-                                        memcpy(caption_id, id_start, id_len);
-                                        caption_id[id_len] = '\0';
-                                        break;
-                                    }
-                                }
-                            }
+                /* Find the figure_start for this table */
+                const char *this_figure_start = NULL;
+                const char *find_fig = read - 1;
+                while (find_fig >= html && find_fig > read - 500) {
+                    if (*find_fig == '<' && strncmp(find_fig, "<figure", 7) == 0) {
+                        const char *class_check = strstr(find_fig, "class=\"table-figure\"");
+                        if (!class_check) {
+                            class_check = strstr(find_fig, "class='table-figure'");
+                        }
+                        if (class_check && class_check < tag_start) {
+                            this_figure_start = find_fig;
+                            break;
                         }
                     }
-                    search--;
+                    find_fig--;
+                }
+
+                /* Look for a caption in this figure (either before or after table) */
+                if (this_figure_start) {
+                    for (caption_info *cap = caption_list; cap; cap = cap->next) {
+                        if (cap->figure_start == this_figure_start) {
+                            /* Found a caption in the same figure - use it regardless of position */
+                            caption_id = strdup(cap->caption_id);
+                            break;
+                        }
+                    }
                 }
             }
 
@@ -1976,37 +2070,24 @@ char *apex_apply_aria_labels(const char *html, cmark_node *document) {
                 continue;
             }
 
-            /* Check if we're in a table-figure context by looking backwards */
-            const char *before_cap = read - 1;
-            bool in_table_figure = false;
-            while (before_cap >= html && before_cap > read - 200) {
-                if (*before_cap == '<' && strncmp(before_cap, "<figure", 7) == 0) {
-                    const char *class_check = strstr(before_cap, "class=\"table-figure\"");
-                    if (!class_check) {
-                        class_check = strstr(before_cap, "class='table-figure'");
-                    }
-                    if (class_check && class_check < tag_start) {
-                        in_table_figure = true;
-                        break;
-                    }
+            /* Find this figcaption in our caption_list */
+            caption_info *this_caption = NULL;
+            for (caption_info *cap = caption_list; cap; cap = cap->next) {
+                if (cap->figcaption_pos == tag_start) {
+                    this_caption = cap;
+                    break;
                 }
-                before_cap--;
             }
 
-            if (in_table_figure) {
-                /* Check if ID already exists */
+            if (this_caption) {
+                /* Check if ID already exists in original HTML */
                 const char *id_attr = strstr(tag_start, "id=\"");
                 if (!id_attr) {
                     id_attr = strstr(tag_start, "id='");
                 }
 
                 if (!id_attr || id_attr > tag_end) {
-                    /* No ID, generate one */
-                    char caption_id[64];
-                    table_caption_counter++;
-                    snprintf(caption_id, sizeof(caption_id), "table-caption-%d", table_caption_counter);
-
-                    /* Copy up to just before closing >, add id, then close */
+                    /* No ID in original, add the one we generated/collected */
                     size_t prefix_len = tag_end - tag_start;
                     if (prefix_len <= remaining) {
                         memcpy(write, tag_start, prefix_len);
@@ -2016,7 +2097,7 @@ char *apex_apply_aria_labels(const char *html, cmark_node *document) {
 
                     /* Add id attribute */
                     char id_attr_str[128];
-                    snprintf(id_attr_str, sizeof(id_attr_str), " id=\"%s\"", caption_id);
+                    snprintf(id_attr_str, sizeof(id_attr_str), " id=\"%s\"", this_caption->caption_id);
                     APPEND_SAFE(id_attr_str);
                     COPY_CHAR('>');
                     read = tag_end + 1;
@@ -2033,6 +2114,15 @@ char *apex_apply_aria_labels(const char *html, cmark_node *document) {
     #undef COPY_CHAR
 
     *write = '\0';
+
+    /* Free caption list */
+    while (caption_list) {
+        caption_info *next = caption_list->next;
+        free(caption_list->caption_id);
+        free(caption_list);
+        caption_list = next;
+    }
+
     return output;
 }
 
