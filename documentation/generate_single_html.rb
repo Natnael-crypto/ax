@@ -4,6 +4,15 @@
 
 require 'fileutils'
 
+begin
+  require 'rouge'
+  ROUGE_AVAILABLE = true
+rescue LoadError
+  ROUGE_AVAILABLE = false
+  puts "Warning: Rouge gem not found. Install with: gem install rouge"
+  puts "Syntax highlighting will be disabled."
+end
+
 SCRIPT_DIR = File.expand_path(__dir__)
 DOCS_DIR = File.join(SCRIPT_DIR, '..')
 HTML_DIR = File.join(DOCS_DIR, 'documentation', 'html')
@@ -60,58 +69,58 @@ def parse_footer
   end
 end
 
+def rouge_css
+  return '' unless ROUGE_AVAILABLE
+
+  begin
+    theme = Rouge::Themes::Github.new
+    css_content = theme.render
+    # Scope all CSS rules to .highlight
+    scoped_css = css_content.lines.map do |line|
+      # Skip empty lines and comments
+      if line.strip.empty? || line.strip.start_with?('/*') || line.strip.start_with?('*/')
+        line
+      # Scope CSS rules that start with . or # (but not @ rules)
+      elsif line =~ /^\s*([.#][a-z0-9_-]+)/i && !line.strip.start_with?('@')
+        line.gsub(/^(\s*)([.#][a-z0-9_-]+)/i, '\1.highlight \2')
+      else
+        line
+      end
+    end.join
+
+    <<~CSS
+      <style>
+        #{scoped_css}
+      </style>
+    CSS
+  rescue => e
+    puts "Warning: Failed to generate Rouge CSS: #{e.message}"
+    # Fallback to basic styles
+    <<~CSS
+      <style>
+        .highlight { background: #f5f5f5; }
+        .highlight .k { color: #d73a49; }
+        .highlight .s { color: #032f62; }
+        .highlight .n { color: #005cc5; }
+      </style>
+    CSS
+  end
+end
+
 def generate_css
-  <<~CSS
+  # Load shared CSS
+  shared_css_file = File.join(SCRIPT_DIR, 'shared_styles.css')
+  shared_css = File.exist?(shared_css_file) ? File.read(shared_css_file) : ''
+
+  # Additional styles specific to single-page HTML
+  additional_css = <<~CSS
     <style>
       * {
         margin: 0;
         padding: 0;
         box-sizing: border-box;
       }
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-        line-height: 1.6;
-        color: #333;
-        margin-left: 220px;
-      }
-      .sidebar {
-        position: fixed;
-        left: 0;
-        top: 0;
-        width: auto;
-        min-width: 150px;
-        max-width: 200px;
-        height: 100vh;
-        overflow-y: auto;
-        background: #f5f5f5;
-        border-right: 2px solid #ddd;
-        padding: 20px;
-        font-size: 0.9em;
-        z-index: 100;
-      }
-      .sidebar ul {
-        list-style: none;
-        padding-left: 0;
-        margin: 0;
-      }
-      .sidebar li {
-        margin: 0.25em 0;
-      }
-      .sidebar a {
-        color: #333;
-        text-decoration: none;
-        display: block;
-        padding: 0.5em;
-        border-radius: 3px;
-        cursor: pointer;
-      }
-      .sidebar a:hover {
-        background: #e0e0e0;
-      }
-      .sidebar a.active {
-        background: #ddd;
-        font-weight: bold;
-      }
+      #{shared_css}
       .content {
         padding: 2rem;
         max-width: 900px;
@@ -121,69 +130,6 @@ def generate_css
       }
       .page.active {
         display: block;
-      }
-      .page-toc {
-        background: #f9f9f9;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        padding: 1rem;
-        margin: 1.5rem 0;
-      }
-      .page-toc ul {
-        list-style: none;
-        padding-left: 0;
-        margin: 0;
-      }
-      .page-toc > ul {
-        padding-left: 0;
-      }
-      .page-toc li {
-        margin: 0.25em 0;
-      }
-      .page-toc a {
-        color: #0066cc;
-        text-decoration: none;
-        display: block;
-        padding: 0.25em 0.5em;
-        border-radius: 3px;
-      }
-      .page-toc a:hover {
-        background: #e0e0e0;
-        color: #004499;
-      }
-      .page-toc ul ul {
-        list-style: none;
-        padding-left: 1.5em;
-        margin-top: 0.25em;
-      }
-      .page-toc ul ul ul {
-        padding-left: 1.5em;
-      }
-      .page-toc ul ul a {
-        font-size: 0.9em;
-        color: #555;
-      }
-      .page-toc ul ul ul a {
-        font-size: 0.85em;
-        color: #666;
-      }
-      .page-footer {
-        background: #f5f5f5;
-        border-top: 1px solid #ddd;
-        padding: 1.5rem;
-        margin-top: 3rem;
-        color: #666;
-        font-size: 0.9em;
-      }
-      .page-footer p {
-        margin: 0.5em 0;
-      }
-      .page-footer a {
-        color: #0066cc;
-        text-decoration: none;
-      }
-      .page-footer a:hover {
-        text-decoration: underline;
       }
       h1, h2, h3, h4, h5, h6 {
         margin-top: 1.5em;
@@ -198,26 +144,6 @@ def generate_css
         font-size: 1.5em;
         border-bottom: 1px solid #eee;
         padding-bottom: 0.3em;
-      }
-      code {
-        background: #f0f0f0;
-        padding: 0.2em 0.4em;
-        border-radius: 3px;
-        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-        font-size: 0.9em;
-        margin: 0 0.1em;
-      }
-      pre {
-        background: #f5f5f5;
-        padding: 1rem;
-        overflow-x: auto;
-        border-radius: 4px;
-        margin: 1em 0;
-      }
-      pre code {
-        background: none;
-        padding: 0;
-        margin: 0;
       }
       blockquote {
         border-left: 4px solid #ddd;
@@ -236,26 +162,18 @@ def generate_css
       th {
         background: #f5f5f5;
       }
-      /* Nested lists in page content */
-      ul ul, ol ol, ul ol, ol ul {
-        padding-left: 1.5em;
-        margin-top: 0.25em;
-      }
-      @media (max-width: 768px) {
-        .sidebar {
-          display: none;
-        }
-        body {
-          margin-left: 0;
-        }
-      }
     </style>
   CSS
 end
 
 def generate_javascript
+  # Load shared JavaScript
+  shared_js_file = File.join(SCRIPT_DIR, 'shared_scripts.js')
+  shared_js = File.exist?(shared_js_file) ? File.read(shared_js_file) : ''
+
   <<~JS
     <script>
+      #{shared_js}
       function showPage(pageId) {
         // Hide all pages
         var pages = document.querySelectorAll('.page');
@@ -288,6 +206,136 @@ def generate_javascript
         } else {
           window.location.hash = pageId;
         }
+
+      }
+
+      // Initialize floating TOC for a page
+      function initFloatingTOC(pageElement) {
+        if (!pageElement) return;
+
+        var pageTOC = pageElement.querySelector('.page-toc');
+        if (!pageTOC) return;
+
+        // Add ID to page TOC if it doesn't have one
+        if (!pageTOC.id) {
+          pageTOC.id = 'page-toc-top-' + pageElement.id;
+        }
+
+        // Find or create floating TOC for this page
+        var floatingTOC = pageElement.querySelector('.floating-toc');
+        if (!floatingTOC) {
+          floatingTOC = document.createElement('div');
+          floatingTOC.className = 'floating-toc';
+          floatingTOC.id = 'floating-toc-' + pageElement.id;
+          floatingTOC.innerHTML = '<div class="floating-toc-container"><div class="floating-toc-header"><span>Table of Contents 🔻</span></div><div class="floating-toc-content" id="floating-toc-content-' + pageElement.id + '"></div></div>';
+          pageElement.insertBefore(floatingTOC, pageElement.firstChild);
+        }
+
+        var floatingTOCContent = floatingTOC.querySelector('.floating-toc-content');
+        if (!floatingTOCContent) return;
+
+        // Clone the TOC structure
+        var tocClone = pageTOC.cloneNode(true);
+        tocClone.id = 'floating-toc-clone-' + pageElement.id;
+        floatingTOCContent.innerHTML = '';
+        floatingTOCContent.appendChild(tocClone);
+
+        // Update all links to use smooth scrolling
+        var allTOCLinks = pageElement.querySelectorAll('.page-toc a, .floating-toc-content a');
+        allTOCLinks.forEach(function(link) {
+          link.addEventListener('click', function(e) {
+            var href = this.getAttribute('href');
+            if (href && href.startsWith('#')) {
+              e.preventDefault();
+              var targetId = href.substring(1);
+              var targetElement = document.getElementById(targetId);
+              if (targetElement) {
+                var offset = 20; // Offset from top
+
+                // Function to calculate absolute position from document top
+                function getAbsoluteTop(element) {
+                  var top = 0;
+                  while (element) {
+                    top += element.offsetTop;
+                    element = element.offsetParent;
+                  }
+                  return top;
+                }
+
+                // Ensure the target element's page is visible
+                var targetPage = targetElement.closest('.page');
+                if (targetPage && !targetPage.classList.contains('active')) {
+                  // If target is in a different page, switch to that page first
+                  var pageId = targetPage.id.replace('page-', '');
+                  if (typeof showPage === 'function') {
+                    showPage(pageId);
+                    // Wait for page to be visible, then scroll
+                    setTimeout(function() {
+                      var absoluteTop = getAbsoluteTop(targetElement);
+                      window.scrollTo({
+                        top: Math.max(0, absoluteTop - offset),
+                        behavior: 'smooth'
+                      });
+                    }, 150);
+                  }
+                } else {
+                  // Target is in current page, calculate and scroll
+                  var absoluteTop = getAbsoluteTop(targetElement);
+                  var scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                  var offsetPosition = absoluteTop - offset;
+
+                  if (Math.abs(scrollTop - offsetPosition) > 10) {
+                    window.scrollTo({
+                      top: Math.max(0, offsetPosition),
+                      behavior: 'smooth'
+                    });
+                  }
+                }
+
+                // Update URL hash without triggering scroll
+                if (history.pushState) {
+                  history.pushState(null, null, href);
+                }
+              }
+            }
+          });
+        });
+
+        // Handle scroll to show/hide floating TOC
+        var tocTop = pageTOC.getBoundingClientRect().top + window.pageYOffset;
+        var tocBottom = tocTop + pageTOC.offsetHeight;
+
+        function updateFloatingTOC() {
+          if (!pageElement.classList.contains('active')) {
+            floatingTOC.classList.remove('visible');
+            return;
+          }
+
+          var scrollY = window.pageYOffset || document.documentElement.scrollTop;
+
+          if (scrollY > tocBottom) {
+            floatingTOC.classList.add('visible');
+          } else {
+            floatingTOC.classList.remove('visible');
+          }
+        }
+
+        // Throttle scroll events
+        var ticking = false;
+        function handleScroll() {
+          if (!ticking) {
+            window.requestAnimationFrame(function() {
+              updateFloatingTOC();
+              ticking = false;
+            });
+            ticking = true;
+          }
+        }
+
+        window.addEventListener('scroll', handleScroll);
+
+        // Initial check
+        updateFloatingTOC();
       }
 
       // Initialize on load
@@ -300,25 +348,137 @@ def generate_javascript
             var pageId = this.getAttribute('data-page');
             if (pageId) {
               showPage(pageId);
+              // Initialize floating TOC for the new page
+              setTimeout(function() {
+                var pageElement = document.getElementById('page-' + pageId);
+                if (pageElement) {
+                  initFloatingTOC(pageElement);
+                }
+              }, 100);
             }
           });
         });
 
-        // Check for hash on load
-        var hash = window.location.hash.substring(1);
-        if (hash) {
-          showPage(hash);
-        } else {
-          // Show first page by default
+        // Function to handle hash navigation
+        function handleHashNavigation() {
+          var hash = window.location.hash.substring(1);
+          if (!hash) {
+            // No hash, show first page by default
+            var firstLink = document.querySelector('.sidebar a[data-page]');
+            if (firstLink) {
+              var firstPageId = firstLink.getAttribute('data-page');
+              showPage(firstPageId);
+              setTimeout(function() {
+                var firstPageElement = document.getElementById('page-' + firstPageId);
+                if (firstPageElement) {
+                  initFloatingTOC(firstPageElement);
+                }
+              }, 100);
+            }
+            return;
+          }
+
+          // Check if hash is a page ID
+          var pageElement = document.getElementById('page-' + hash);
+          if (pageElement) {
+            // Hash is a page ID, show that page
+            showPage(hash);
+            setTimeout(function() {
+              initFloatingTOC(pageElement);
+            }, 100);
+            return;
+          }
+
+          // Hash might be a section ID, find which page contains it
+          var targetElement = document.getElementById(hash);
+          if (targetElement) {
+            // Find the page that contains this element
+            var containingPage = targetElement.closest('.page');
+            if (containingPage) {
+              var pageId = containingPage.id.replace('page-', '');
+              showPage(pageId);
+              setTimeout(function() {
+                initFloatingTOC(containingPage);
+                // Scroll to the target element
+                function getAbsoluteTop(element) {
+                  var top = 0;
+                  while (element) {
+                    top += element.offsetTop;
+                    element = element.offsetParent;
+                  }
+                  return top;
+                }
+                var absoluteTop = getAbsoluteTop(targetElement);
+                window.scrollTo({
+                  top: Math.max(0, absoluteTop - 20),
+                  behavior: 'smooth'
+                });
+              }, 200);
+              return;
+            }
+          }
+
+          // Hash doesn't match anything, show first page
           var firstLink = document.querySelector('.sidebar a[data-page]');
           if (firstLink) {
             var firstPageId = firstLink.getAttribute('data-page');
             showPage(firstPageId);
+            setTimeout(function() {
+              var firstPageElement = document.getElementById('page-' + firstPageId);
+              if (firstPageElement) {
+                initFloatingTOC(firstPageElement);
+              }
+            }, 100);
           }
         }
+
+        // Handle hash on load
+        handleHashNavigation();
+
+        // Also handle hash changes
+        window.addEventListener('hashchange', function() {
+          handleHashNavigation();
+        });
+
+        // Initialize floating TOC for all pages
+        var allPages = document.querySelectorAll('.page');
+        allPages.forEach(function(page) {
+          initFloatingTOC(page);
+        });
       });
     </script>
   JS
+end
+
+def highlight_code_blocks(html_content)
+  return html_content unless ROUGE_AVAILABLE
+
+  # Find all code blocks - handle various formats
+  html_content.gsub(/<pre><code(?:\s+class=["'](?:language-)?([^"'\s]+)["'])?[^>]*>([\s\S]*?)<\/code><\/pre>/i) do |match|
+    lang = $1
+    code = $2
+
+    # Unescape HTML entities
+    code = code.gsub(/&lt;/, '<').gsub(/&gt;/, '>').gsub(/&amp;/, '&').gsub(/&quot;/, '"')
+
+    begin
+      if lang && !lang.empty?
+        lexer = Rouge::Lexer.find(lang.downcase) || Rouge::Lexers::PlainText
+      else
+        lexer = Rouge::Lexers::PlainText
+      end
+
+      formatter = Rouge::Formatters::HTML.new
+      highlighted = formatter.format(lexer.lex(code))
+
+      # Return highlighted code with proper classes
+      "<pre><code class=\"highlight #{lang ? "language-#{lang}" : ''}\">#{highlighted}</code></pre>"
+    rescue => e
+      # If highlighting fails, return original
+      puts "Warning: Failed to highlight code block: #{e.message}"
+      match
+    end
+  end
 end
 
 def extract_headers(html_content)
@@ -370,7 +530,7 @@ def fix_links_in_html(html_content, page_map)
     href = $2
     attrs_after = $3 || ''
 
-    # Skip external links, anchors, or files with extensions
+    # Skip external links, anchors (starting with #), or files with extensions
     if href =~ /^(https?:\/\/|mailto:|#|.*\.(html|md|pdf|png|jpg|jpeg|gif|svg|webp))/i
       match
     elsif page_map[href]
@@ -381,7 +541,14 @@ def fix_links_in_html(html_content, page_map)
       page_id = page_map[href.gsub(/\s+/, '-')]
       "<a #{attrs_before}href=\"##{page_id}\" onclick=\"showPage('#{page_id}'); return false;\"#{attrs_after}>"
     else
-      match
+      # Try to find a matching page by case-insensitive comparison
+      matching_page = page_map.find { |name, id| name.downcase == href.downcase || name.downcase.gsub(/\s+/, '-') == href.downcase }
+      if matching_page
+        page_id = matching_page[1]
+        "<a #{attrs_before}href=\"##{page_id}\" onclick=\"showPage('#{page_id}'); return false;\"#{attrs_after}>"
+      else
+        match
+      end
     end
   end
 end
@@ -439,8 +606,22 @@ puts "Found #{pages.length} pages to process..."
 # Parse footer
 footer_html = parse_footer
 
-# Process each page
+# Build complete page_map first (before processing any pages)
+# This ensures all page names are available when fixing links
 page_map = {}
+pages.each do |page_info|
+  page_id = page_info[:name].downcase.gsub(/\s+/, '-')
+  # Map both the original name and common variations
+  page_map[page_info[:name]] = page_id
+  page_map[page_info[:name].gsub(/\s+/, '-')] = page_id
+  page_map[page_info[:name].gsub(/\s+/, '_')] = page_id
+  # Also map the file name without extension
+  file_basename = File.basename(page_info[:file], '.md')
+  page_map[file_basename] = page_id
+  page_map[file_basename.gsub(/\s+/, '-')] = page_id
+end
+
+# Process each page
 page_htmls = []
 
 pages.each do |page_info|
@@ -462,17 +643,23 @@ pages.each do |page_info|
       title_match = body_content.match(/<h1[^>]*>(.*?)<\/h1>/i)
       title = title_match ? title_match[1].gsub(/<[^>]+>/, '').strip : page_info[:title]
 
-      # Extract headers for TOC
+      # Fix links (page_map is now complete with all pages)
+      body_content = fix_links_in_html(body_content, page_map)
+
+      # Extract headers for TOC (after fixing links)
       headers = extract_headers(body_content)
       page_toc = generate_page_toc(headers)
 
-      # Fix links
-      page_map[page_info[:name]] = page_info[:name].downcase.gsub(/\s+/, '-')
-      body_content = fix_links_in_html(body_content, page_map)
+      # Fix any remaining links in the TOC itself
+      page_toc = fix_links_in_html(page_toc, page_map)
 
-      # Inject page TOC after h1
+      # Highlight code blocks
+      body_content = highlight_code_blocks(body_content)
+
+      # Inject page TOC after h1 (add ID for scroll detection)
+      page_toc_with_id = page_toc.sub(/<nav class="page-toc">/, '<nav class="page-toc" id="page-toc-top">')
       if body_content =~ /<h1[^>]*>[\s\S]*?<\/h1>/i
-        body_content = body_content.sub(/(<h1[^>]*>[\s\S]*?<\/h1>)/i, "\\1\n#{page_toc}")
+        body_content = body_content.sub(/(<h1[^>]*>[\s\S]*?<\/h1>)/i, "\\1\n#{page_toc_with_id}")
       end
 
       # Add footer
@@ -488,7 +675,13 @@ pages.each do |page_info|
 end
 
 # Generate sidebar HTML
-sidebar_html = '<nav class="sidebar"><ul>'
+# Add hamburger menu and mobile overlay
+hamburger_html = <<~HTML
+  <button class="hamburger-menu" id="hamburger-menu" aria-label="Toggle navigation"></button>
+  <div class="mobile-menu-overlay" id="mobile-menu-overlay"></div>
+HTML
+
+sidebar_html = hamburger_html + '<nav class="sidebar"><ul>'
 pages.each do |page_info|
   page_id = page_info[:name].downcase.gsub(/\s+/, '-')
   sidebar_html += "<li><a href=\"##{page_id}\" data-page=\"#{page_id}\">#{page_info[:title]}</a></li>"
@@ -511,6 +704,7 @@ html_output = <<~HTML
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Apex Documentation</title>
   #{generate_css}
+  #{rouge_css}
 </head>
 <body>
   #{sidebar_html}
